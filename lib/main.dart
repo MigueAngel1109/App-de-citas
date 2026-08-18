@@ -1,6 +1,6 @@
                                                                                                                                                                                                                                                                                 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import 'package:url_launcher/url_launcher.dart';
 
 // Enum para los estados de login
@@ -46,6 +46,111 @@ class AppColors {
 
   // Líneas
   static const Color divider = Color(0xFFE5E5E5);
+}
+
+// ============================================================
+// ICONO PERSONALIZADO COPA DE MARTINI
+// ============================================================
+
+class MartiniGlassIcon extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const MartiniGlassIcon({
+    super.key,
+    this.size = 40,
+    this.color = AppColors.white,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _MartiniGlassPainter(color: color),
+      ),
+    );
+  }
+}
+
+class _MartiniGlassPainter extends CustomPainter {
+  final Color color;
+
+  _MartiniGlassPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final strokeWidth = size.width * 0.065;
+
+    final strokePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final fillPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Palillo (diagonal desde el interior del vaso hacia la esquina superior derecha)
+    canvas.drawLine(
+      Offset(w * 0.55, h * 0.44),
+      Offset(w * 0.92, h * 0.08),
+      strokePaint,
+    );
+
+    // 2. Aceituna en el palillo
+    canvas.save();
+    canvas.translate(w * 0.77, h * 0.22);
+    canvas.rotate(-0.785); // -45 grados
+    final oliveRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: w * 0.20,
+      height: w * 0.12,
+    );
+    canvas.drawOval(oliveRect, fillPaint);
+    canvas.restore();
+
+    // 3. Contorno del Vaso estilo Martini
+    final bowlPath = Path()
+      ..moveTo(w * 0.16, h * 0.28)
+      ..lineTo(w * 0.84, h * 0.28)
+      ..lineTo(w * 0.50, h * 0.60)
+      ..close();
+    canvas.drawPath(bowlPath, strokePaint);
+
+    // 4. Relleno del líquido dentro de la copa
+    final liquidPath = Path()
+      ..moveTo(w * 0.23, h * 0.35)
+      ..lineTo(w * 0.77, h * 0.35)
+      ..lineTo(w * 0.50, h * 0.58)
+      ..close();
+    canvas.drawPath(liquidPath, fillPaint);
+
+    // 5. Tallo vertical
+    canvas.drawLine(
+      Offset(w * 0.50, h * 0.60),
+      Offset(w * 0.50, h * 0.88),
+      strokePaint,
+    );
+
+    // 6. Base de la copa
+    final basePath = Path()
+      ..moveTo(w * 0.32, h * 0.94)
+      ..lineTo(w * 0.68, h * 0.94)
+      ..lineTo(w * 0.50, h * 0.86)
+      ..close();
+    canvas.drawPath(basePath, fillPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MartiniGlassPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 // ============================================================
@@ -245,10 +350,11 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
 
-                    child: const Icon(
-                      Icons.favorite_rounded,
-                      color: AppColors.white,
-                      size: 40,
+                    child: const Center(
+                      child: MartiniGlassIcon(
+                        size: 44,
+                        color: AppColors.white,
+                      ),
                     ),
                   ),
 
@@ -270,7 +376,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 6),
 
                   const Text(
-                    'Conoce personas. Conecta. Disfruta.',
+                    'Personas reales. Conexiones reales.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 15,
@@ -1059,61 +1165,144 @@ class DiscoverPage extends StatefulWidget {
 
 class _DiscoverPageState extends State<DiscoverPage> {
   int _tabActual = 0;
-  String zonaSeleccionada = 'Zona T';
+  String zonaSeleccionada = 'Todas';
   int lugarActual = 0;
+  late PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   final List<String> zonas = [
+    'Todas',
     'Zona T',
     'Zona G',
-    'Uisaquén',
+    'Usaquén',
     'Parque 93',
-    'El Cielo',
-    'Mini-Mal',
-    'Humo',
   ];
 
   final List<Map<String, String>> lugares = [
     {
+      'id': '1',
       'nombre': 'Andrés D.C.',
       'zona': 'Zona T',
+      'plan': 'Cena & Tragos 🍸',
       'hora': 'Hoy 9:00 PM',
       'usuario': 'Mateo, 28',
+      'bio': 'Amante de la salsa y la gastronomía.',
       'instagram': '@davidgandy_official',
       'instagram_url': 'https://www.instagram.com/davidgandy_official',
-      'imagen': 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1000&q=80',
-      'avatar': 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      'imagen': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&q=80',
     },
     {
+      'id': '2',
       'nombre': 'La Brasserie',
       'zona': 'Zona G',
+      'plan': 'Vino & Cena 🍷',
       'hora': 'Hoy 8:00 PM',
       'usuario': 'Ana, 26',
+      'bio': 'Arquitecta apasionada por el buen vino.',
       'instagram': '@gigihadid',
       'instagram_url': 'https://www.instagram.com/gigihadid',
-      'imagen': 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1000&q=80',
-      'avatar': 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+      'imagen': 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
     },
     {
-      'nombre': 'El Cielo',
+      'id': '3',
+      'nombre': 'El Cielo Rooftop',
       'zona': 'Parque 93',
+      'plan': 'Cócteles de Autor 🍹',
       'hora': 'Mañana 7:30 PM',
       'usuario': 'Luis, 30',
+      'bio': 'Me encantan las vistas nocturnas.',
       'instagram': '@seanopry55',
       'instagram_url': 'https://www.instagram.com/seanopry55',
-      'imagen': 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=1000&q=80',
+      'imagen': 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
     },
     {
+      'id': '4',
       'nombre': 'Mini-Mal Café',
-      'zona': 'Uisaquén',
-      'hora': 'Hoy 10:00 PM',
+      'zona': 'Usaquén',
+      'plan': 'Café & Postres ☕',
+      'hora': 'Hoy 5:30 PM',
       'usuario': 'Sofia, 24',
+      'bio': 'Diseñadora gráfica y catadora de café.',
       'instagram': '@kendalljenner',
       'instagram_url': 'https://www.instagram.com/kendalljenner',
-      'imagen': 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1000&q=80',
-      'avatar': 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+      'imagen': 'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+    },
+    {
+      'id': '5',
+      'nombre': 'Humo Bar & Grill',
+      'zona': 'Zona T',
+      'plan': 'Asado & Cerveza 🍺',
+      'hora': 'Mañana 8:30 PM',
+      'usuario': 'Carlos, 29',
+      'bio': 'Emprendedor y amante del deporte.',
+      'instagram': '@davidbeckham',
+      'instagram_url': 'https://www.instagram.com/davidbeckham',
+      'imagen': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+    },
+    {
+      'id': '6',
+      'nombre': 'Oci 83',
+      'zona': 'Zona G',
+      'plan': 'Cena Gourmet 🍽️',
+      'hora': 'Sábado 9:00 PM',
+      'usuario': 'Valentina, 27',
+      'bio': 'Fotógrafa y fanática del jazz.',
+      'instagram': '@emrata',
+      'instagram_url': 'https://www.instagram.com/emrata',
+      'imagen': 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&q=80',
+    },
+    {
+      'id': '7',
+      'nombre': 'Apache Speakeasy',
+      'zona': 'Parque 93',
+      'plan': 'Tragos & Jazz 🎷',
+      'hora': 'Viernes 10:00 PM',
+      'usuario': 'Diego, 31',
+      'bio': 'Músico descubriendo sitios secretos.',
+      'instagram': '@charliehunnam',
+      'instagram_url': 'https://www.instagram.com/charliehunnam',
+      'imagen': 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=300&q=80',
+    },
+    {
+      'id': '8',
+      'nombre': 'Abasto Usaquén',
+      'zona': 'Usaquén',
+      'plan': 'Brunch de Domingo 🥞',
+      'hora': 'Domingo 11:30 AM',
+      'usuario': 'Camila, 25',
+      'bio': 'Médica veterinaria, mimosas y mañanas.',
+      'instagram': '@taylor_hill',
+      'instagram_url': 'https://www.instagram.com/taylor_hill',
+      'imagen': 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=1000&q=80',
+      'avatar': 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80',
     },
   ];
+
+  List<Map<String, String>> get _lugaresFiltrados {
+    if (zonaSeleccionada == 'Todas') {
+      return lugares;
+    }
+    final list = lugares.where((l) => l['zona'] == zonaSeleccionada).toList();
+    return list.isEmpty ? lugares : list;
+  }
 
   Future<void> _abrirInstagram(String urlString) async {
     final Uri url = Uri.parse(urlString);
@@ -1281,7 +1470,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
-  void _solicitarUnirse() {
+  void _solicitarUnirse([Map<String, String>? lugarOverride]) {
+    final list = _lugaresFiltrados;
+    final indexSeguro = lugarActual.clamp(0, list.isEmpty ? 0 : list.length - 1);
+    final lugar = lugarOverride ?? (list.isNotEmpty ? list[indexSeguro] : lugares[0]);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1294,7 +1487,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
         ),
         content: Text(
-          '¡Hemos enviado tu solicitud a ${lugares[lugarActual]['usuario']}!',
+          '¡Hemos enviado tu solicitud a ${lugar['usuario']} para la cita en ${lugar['nombre']}!',
           style: const TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
@@ -1556,174 +1749,301 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
         ),
 
-        // TARJETA MODAL EN LA PARTE INFERIOR
+        // TARJETA MODAL EN LA PARTE INFERIOR (CARRUSEL DE CITAS APILADAS)
         Positioned(
           bottom: 0,
           left: 0,
           right: 0,
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.inputBorder,
-                      borderRadius: BorderRadius.circular(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Borde superior de tarjeta apilada visible detrás (Efecto de tarjetas apiladas)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                height: 10,
+                decoration: BoxDecoration(
+                  color: AppColors.white.withValues(alpha: 0.6),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 10,
                     ),
-                  ),
+                  ],
                 ),
-
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Imagen del lugar / modelo con tap para ampliar
-                      GestureDetector(
-                        onTap: () => _abrirImagenModal(context, lugares[lugarActual]),
-                        child: Container(
-                          width: double.infinity,
-                          height: 145,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            color: Colors.grey[200],
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+              ),
+              // Tarjeta principal apilada
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 25,
+                      offset: const Offset(0, -6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Tirador y barra superior de navegación de citas apiladas
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.inputBorder,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: AppColors.primary.withValues(alpha: 0.2),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.style, size: 13, color: AppColors.primary),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'CITA ${lugarActual + 1} DE ${_lugaresFiltrados.length}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.primary,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.all(4),
+                                    icon: Icon(
+                                      Icons.arrow_back_ios_new_rounded,
+                                      size: 15,
+                                      color: lugarActual > 0 ? AppColors.primary : AppColors.textLight,
+                                    ),
+                                    onPressed: lugarActual > 0
+                                        ? () {
+                                            _pageController.previousPage(
+                                              duration: const Duration(milliseconds: 300),
+                                              curve: Curves.easeInOut,
+                                            );
+                                          }
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Row(
+                                    children: List.generate(
+                                      _lugaresFiltrados.length,
+                                      (idx) => AnimatedContainer(
+                                        duration: const Duration(milliseconds: 200),
+                                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                                        width: idx == lugarActual ? 14 : 5,
+                                        height: 5,
+                                        decoration: BoxDecoration(
+                                          color: idx == lugarActual
+                                              ? AppColors.primary
+                                              : AppColors.inputBorder,
+                                          borderRadius: BorderRadius.circular(3),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.all(4),
+                                    icon: Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      size: 15,
+                                      color: lugarActual < _lugaresFiltrados.length - 1
+                                          ? AppColors.primary
+                                          : AppColors.textLight,
+                                    ),
+                                    onPressed: lugarActual < _lugaresFiltrados.length - 1
+                                        ? () {
+                                            _pageController.nextPage(
+                                              duration: const Duration(milliseconds: 300),
+                                              curve: Curves.easeInOut,
+                                            );
+                                          }
+                                        : null,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Stack(
+                        ],
+                      ),
+                    ),
+
+                    // Carrusel PageView de tarjetas de citas
+                    SizedBox(
+                      height: 375,
+                      child: PageView.builder(
+                        controller: _pageController,
+                        onPageChanged: (index) {
+                          setState(() {
+                            lugarActual = index;
+                          });
+                        },
+                        itemCount: _lugaresFiltrados.length,
+                        itemBuilder: (context, index) {
+                          final lugar = _lugaresFiltrados[index];
+                          return _buildTarjetaCitaIndividual(lugar);
+                        },
+                      ),
+                    ),
+
+                    // Barra de navegación inferior compartida
+                    _buildBottomNavBarRow(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // TARJETA INDIVIDUAL DE CITA DENTRO DEL CARRUSEL
+  // ============================================================
+  Widget _buildTarjetaCitaIndividual(Map<String, String> lugar) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Imagen del lugar / modelo con tap para ampliar
+            GestureDetector(
+              onTap: () => _abrirImagenModal(context, lugar),
+              child: Container(
+                width: double.infinity,
+                height: 135,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.grey[200],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Image.network(
+                          lugar['imagen']!,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              color: Colors.grey[200],
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: Center(
+                                child: Icon(
+                                  Icons.local_bar,
+                                  size: 40,
+                                  color: AppColors.primary.withValues(alpha: 0.3),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      // Tag del tipo de plan
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            lugar['plan'] ?? 'Cita',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Botón Instagram sobre la foto
+                      Positioned(
+                        bottom: 10,
+                        left: 10,
+                        child: GestureDetector(
+                          onTap: () => _abrirInstagram(lugar['instagram_url']!),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF833AB4),
+                                  Color(0xFFFD1D1D),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.2),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Positioned.fill(
-                                  child: Image.network(
-                                    lugares[lugarActual]['imagen']!,
-                                    fit: BoxFit.cover,
-                                    loadingBuilder: (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Container(
-                                        color: Colors.grey[200],
-                                        child: const Center(
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: AppColors.primary,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: Colors.grey[300],
-                                        child: Center(
-                                          child: Icon(
-                                            Icons.person,
-                                            size: 50,
-                                            color: AppColors.primary.withValues(alpha: 0.3),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                Positioned(
-                                  bottom: 10,
-                                  left: 10,
-                                  child: GestureDetector(
-                                    onTap: () => _abrirInstagram(lugares[lugarActual]['instagram_url']!),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          colors: [
-                                            Color(0xFF833AB4),
-                                            Color(0xFFFD1D1D),
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(20),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.2),
-                                            blurRadius: 4,
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 13),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            lugares[lugarActual]['instagram']!,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 10,
-                                  left: 10,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.5),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.zoom_in, color: Colors.white, size: 14),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          'Toca para ampliar',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 10,
-                                  right: 10,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.white.withValues(alpha: 0.85),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.close,
-                                      size: 16,
-                                      color: AppColors.textPrimary,
-                                    ),
+                                const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 13),
+                                const SizedBox(width: 4),
+                                Text(
+                                  lugar['instagram']!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ],
@@ -1732,164 +2052,184 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         ),
                       ),
 
-                      const SizedBox(height: 12),
-
-                      // Nombre del lugar
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                lugares[lugarActual]['nombre']!,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.location_on,
-                                    size: 14,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    lugares[lugarActual]['zona']!,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.access_time,
-                                    size: 14,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    lugares[lugarActual]['hora']!,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // Usuario que invita
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'ANFRITRIÓN',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textSecondary,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                lugares[lugarActual]['usuario']!,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          InkWell(
-                            onTap: () => _abrirInstagram(lugares[lugarActual]['instagram_url']!),
+                      // Toca para ampliar
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFD1D1D).withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFFD1D1D).withValues(alpha: 0.3),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                              SizedBox(width: 4),
+                              Text(
+                                'Toca para ampliar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.camera_alt_outlined,
-                                    size: 14,
-                                    color: Color(0xFFFD1D1D),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    lugares[lugarActual]['instagram']!,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFFD1D1D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Botón solicitar unirse
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: _solicitarUnirse,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: AppColors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Solicitar unirme',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                            ),
+                            ],
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
+              ),
+            ),
 
-                // Barra de navegación inferior
-                _buildBottomNavBarRow(),
+            const SizedBox(height: 10),
+
+            // Info del sitio y horario
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        lugar['nombre']!,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            lugar['zona']!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Icon(
+                            Icons.access_time,
+                            size: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            lugar['hora']!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-          ),
+
+            const SizedBox(height: 10),
+
+            // Anfitrión con avatar e Instagram
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.inputBackground,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundImage: NetworkImage(lugar['avatar']!),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'ANFITRIÓN: ',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Text(
+                              lugar['usuario']!,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (lugar['bio'] != null)
+                          Text(
+                            lugar['bio']!,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // Botón Solicitar unirme
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                onPressed: () => _solicitarUnirse(lugar),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'Solicitar unirme a ${lugar['usuario']!.split(',')[0]}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
