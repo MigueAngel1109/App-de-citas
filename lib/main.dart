@@ -1202,6 +1202,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/davidgandy_official',
       'imagen': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '2 años',
+      'calificacion': '4.8 ★',
     },
     {
       'id': '2',
@@ -1215,6 +1217,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/gigihadid',
       'imagen': 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '1 año',
+      'calificacion': '4.9 ★',
     },
     {
       'id': '3',
@@ -1228,6 +1232,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/seanopry55',
       'imagen': 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '3 años',
+      'calificacion': '4.9 ★',
     },
     {
       'id': '4',
@@ -1241,6 +1247,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/kendalljenner',
       'imagen': 'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '9 meses',
+      'calificacion': '4.7 ★',
     },
     {
       'id': '5',
@@ -1254,6 +1262,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/davidbeckham',
       'imagen': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '6 meses',
+      'calificacion': '4.6 ★',
     },
     {
       'id': '6',
@@ -1267,6 +1277,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/emrata',
       'imagen': 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '2 años',
+      'calificacion': '4.9 ★',
     },
     {
       'id': '7',
@@ -1280,6 +1292,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/charliehunnam',
       'imagen': 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '8 meses',
+      'calificacion': '4.8 ★',
     },
     {
       'id': '8',
@@ -1293,6 +1307,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       'instagram_url': 'https://www.instagram.com/taylor_hill',
       'imagen': 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=1000&q=80',
       'avatar': 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80',
+      'antiguedad': '4 meses',
+      'calificacion': '4.7 ★',
     },
   ];
 
@@ -1898,7 +1914,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
                     // Carrusel PageView de tarjetas de citas
                     SizedBox(
-                      height: 375,
+                      height: 305,
                       child: PageView.builder(
                         controller: _pageController,
                         onPageChanged: (index) {
@@ -2048,6 +2064,42 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                 ),
                               ],
                             ),
+                          ),
+                        ),
+                      ),
+
+                      // Calificación general del lugar (Esquina inferior derecha)
+                      Positioned(
+                        bottom: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amber.withValues(alpha: 0.5),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                color: Colors.amber,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                lugar['calificacion'] ?? '4.8 ★',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -2645,6 +2697,26 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.calendar_today_rounded,
+                    size: 13,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Miembro hace ${perfil['antiguedad'] ?? '2 años'}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
 
               const SizedBox(height: 14),
 
@@ -2696,7 +2768,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                   decoration: BoxDecoration(
                     color: AppColors.white,
                     borderRadius: BorderRadius.circular(20),
@@ -2716,6 +2788,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       _buildEstadistica('24', 'Salidas'),
                       Container(height: 30, width: 1, color: AppColors.divider),
                       _buildEstadistica('100%', 'Respuesta'),
+                      Container(height: 30, width: 1, color: AppColors.divider),
+                      _buildEstadistica(perfil['antiguedad'] ?? 'Mar 2024', 'Antigüedad'),
                     ],
                   ),
                 ),
