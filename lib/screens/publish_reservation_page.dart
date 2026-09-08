@@ -369,8 +369,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 
                 const SizedBox(height: 32),
 
-                // 2. Lugar de la cita
-                _buildSectionTitle('2. Lugar de la cita', 'Busca el restaurante o bar en Google Maps.'),
+                // 2. Lugar de la reserva
+                _buildSectionTitle('2. Lugar de la reserva', 'Busca el restaurante o bar en Google Maps.'),
                 const SizedBox(height: 12),
                 Autocomplete<PlaceAutocomplete>(
                   optionsBuilder: (TextEditingValue textEditingValue) async {
@@ -452,7 +452,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 const SizedBox(height: 32),
 
                 // 3. Fecha y Hora
-                _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es la cita?'),
+                _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es la reserva?'),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -501,7 +501,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 const SizedBox(height: 32),
 
                 // 4. Tipo de plan
-                _buildSectionTitle('4. Tipo de plan', '¿Cuál es la vibra de la cita?'),
+                _buildSectionTitle('4. Tipo de plan', '¿Cuál es la vibra del plan?'),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 10,
@@ -537,7 +537,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                   controller: _detailsController,
                   maxLines: 4,
                   style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: _inputDecoration(hint: 'Detalle sobre la cita...'),
+                  decoration: _inputDecoration(hint: 'Detalle sobre la reserva...'),
                 ),
               ],
             ),
@@ -560,7 +560,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Icon(Icons.location_on, color: Colors.white),
                   label: Text(
-                    _isPublishing ? 'Publicando...' : 'Publicar Cita en el Mapa de Bogotá',
+                    _isPublishing ? 'Publicando...' : 'Publicar Reserva en el Mapa de Bogotá',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                   style: ElevatedButton.styleFrom(

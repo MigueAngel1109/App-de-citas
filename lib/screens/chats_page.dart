@@ -5,29 +5,22 @@ import '../utils/app_colors.dart';
 import 'chat_detail_page.dart';
 
 class ChatsPage extends StatelessWidget {
-  const ChatsPage({super.key});
+  final bool isEmbedded;
+
+  const ChatsPage({super.key, this.isEmbedded = false});
 
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      return const Scaffold(
-        body: Center(child: Text('Inicia sesión para ver tus chats')),
-      );
+      return isEmbedded
+          ? const Center(child: Text('Inicia sesión para ver tus chats'))
+          : const Scaffold(
+              body: Center(child: Text('Inicia sesión para ver tus chats')),
+            );
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'Chats y Matches',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
-        ),
-      ),
-      body: StreamBuilder<QuerySnapshot>(
+    final content = StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('matches')
             .where('users', arrayContains: currentUser.uid)
@@ -65,7 +58,7 @@ class ChatsPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Cuando aceptes una solicitud de cita o alguien acepte una de tus solicitudes, se creará un match y podrás chatear aquí para coordinar el encuentro 🎉',
+                      'Cuando aceptes una solicitud de reserva o alguien acepte una de tus solicitudes, se creará un match y podrás chatear aquí para coordinar el encuentro 🎉',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
                     ),
@@ -76,7 +69,7 @@ class ChatsPage extends StatelessWidget {
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
             itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
@@ -89,7 +82,7 @@ class ChatsPage extends StatelessWidget {
 
               final otherName = userNames[otherUserId] ?? 'Tu Match';
               final otherPhoto = userPhotos[otherUserId] ?? '';
-              final placeName = data['placeName'] ?? 'Cita';
+              final placeName = data['placeName'] ?? 'Reserva';
               final lastMessage = data['lastMessage'] ?? '¡Match confirmado!';
 
               return InkWell(
@@ -167,7 +160,7 @@ class ChatsPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              'Cita: $placeName',
+                              'Reserva: $placeName',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
                             ),
                             const SizedBox(height: 2),
@@ -187,7 +180,24 @@ class ChatsPage extends StatelessWidget {
             },
           );
         },
+      );
+
+    if (isEmbedded) {
+      return content;
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Text(
+          'Chats y Matches',
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
       ),
+      body: content,
     );
   }
 }

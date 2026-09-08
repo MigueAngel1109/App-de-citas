@@ -25,7 +25,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     // Mensajes iniciales del anfitrión
     _mensajes.addAll([
       {
-        'texto': '¡Hola! Qué gusto saludarte 👋🏼 Confirmadísima nuestra cita en ${widget.lugar['nombre']} (${widget.lugar['hora']}).',
+        'texto': '¡Hola! Qué gusto saludarte 👋🏼 Confirmadísima nuestra reserva en ${widget.lugar['nombre']} (${widget.lugar['hora']}).',
         'esMio': false,
         'hora': '8:30 PM',
       },
@@ -179,7 +179,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Cita confirmada: ${widget.lugar['nombre']} (${widget.lugar['hora']})',
+                    'Reserva confirmada: ${widget.lugar['nombre']} (${widget.lugar['hora']})',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,

@@ -217,7 +217,7 @@ class MyProfilePage extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          'Sube tus mejores fotos para que las personas puedan reconocerte en tus citas.',
+                          'Sube tus mejores fotos para que las personas puedan reconocerte en tus reservas.',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                         ),
@@ -429,7 +429,7 @@ class MyProfilePage extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 30),
+                const SizedBox(height: 90),
               ],
             ),
           );

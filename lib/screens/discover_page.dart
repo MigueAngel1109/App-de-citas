@@ -12,6 +12,46 @@ import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 
+class ReservationMapItem {
+  final String id;
+  final Map<String, dynamic> data;
+  final LatLng latLng;
+  final String placeName;
+  final String planType;
+  final String paymentType;
+  final String details;
+  final String link;
+  final String formattedDate;
+  final String locationText;
+  final String hostUserId;
+  final String hostName;
+  final int? hostAge;
+  final String hostBio;
+  final String hostPhoto;
+  final String hostInstagram;
+  final String restaurantPhoto;
+
+  ReservationMapItem({
+    required this.id,
+    required this.data,
+    required this.latLng,
+    required this.placeName,
+    required this.planType,
+    required this.paymentType,
+    required this.details,
+    required this.link,
+    required this.formattedDate,
+    required this.locationText,
+    required this.hostUserId,
+    required this.hostName,
+    this.hostAge,
+    required this.hostBio,
+    required this.hostPhoto,
+    required this.hostInstagram,
+    required this.restaurantPhoto,
+  });
+}
+
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
 
@@ -27,6 +67,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   LatLng _currentPosition = _bogotaCenter;
   
   Set<Marker> _markers = {};
+  List<ReservationMapItem> _reservationsList = [];
   bool _isLoadingLocation = true;
   bool _showPeopleDiscovery = false;
 
@@ -185,10 +226,109 @@ class DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
+  int? _calculateAge(dynamic birthDate) {
+    if (birthDate == null) return null;
+    DateTime? date;
+    if (birthDate is Timestamp) {
+      date = birthDate.toDate();
+    } else if (birthDate is DateTime) {
+      date = birthDate;
+    } else if (birthDate is String) {
+      date = DateTime.tryParse(birthDate);
+    }
+    if (date == null) return null;
+    final today = DateTime.now();
+    int age = today.year - date.year;
+    if (today.month < date.month || (today.month == date.month && today.day < date.day)) {
+      age--;
+    }
+    return age;
+  }
+
+  String _getPlanIcon(String planType) {
+    final p = planType.toLowerCase();
+    if (p.contains('trago') || p.contains('copa') || p.contains('bar')) return '🍸';
+    if (p.contains('caf') || p.contains('brunch')) return '☕';
+    return '🍽️';
+  }
+
+  String _resolveRestaurantPhoto(Map<String, dynamic> data, String planType, String seed) {
+    if (data['placePhoto'] != null && (data['placePhoto'] as String).isNotEmpty) {
+      return data['placePhoto'];
+    }
+    if (data['restaurantPhoto'] != null && (data['restaurantPhoto'] as String).isNotEmpty) {
+      return data['restaurantPhoto'];
+    }
+    
+    final plan = planType.toLowerCase();
+    if (plan.contains('trago') || plan.contains('bar') || plan.contains('copa')) {
+      final list = [
+        'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=800&q=80',
+        'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800&q=80',
+        'https://images.unsplash.com/photo-1543007630-9710e4a00a20?w=800&q=80',
+      ];
+      return list[seed.hashCode.abs() % list.length];
+    } else if (plan.contains('caf') || plan.contains('brunch')) {
+      final list = [
+        'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800&q=80',
+        'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800&q=80',
+        'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&q=80',
+      ];
+      return list[seed.hashCode.abs() % list.length];
+    } else {
+      // Comida / Cena / Restaurante elegante
+      final list = [
+        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80',
+        'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=800&q=80',
+        'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&q=80',
+        'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80',
+      ];
+      return list[seed.hashCode.abs() % list.length];
+    }
+  }
+
+  void _showFullImageDialog(BuildContext context, String imageUrl, String title) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: InteractiveViewer(
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: CircleAvatar(
+                backgroundColor: Colors.black.withOpacity(0.65),
+                radius: 18,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _listenToReservations() {
     _reservationsSub?.cancel();
     _reservationsSub = FirebaseFirestore.instance.collection('reservations').snapshots().listen((snapshot) async {
       final Set<Marker> newMarkers = {};
+      final List<ReservationMapItem> newReservationsList = [];
       final Map<String, Map<String, dynamic>?> userDocsCache = {};
       
       for (var doc in snapshot.docs) {
@@ -202,6 +342,9 @@ class DiscoverPageState extends State<DiscoverPage> {
               ? data['userName']
               : 'Alguien';
           String photoUrl = data['userPhoto'] ?? '';
+          String hostBio = '';
+          int? hostAge;
+          String hostInstagram = '';
           
           // Consultar los datos frescos del usuario en 'users' para garantizar que la foto y nombre
           // reflejen cualquier cambio de perfil reciente.
@@ -227,6 +370,9 @@ class DiscoverPageState extends State<DiscoverPage> {
                 final first = pList[0]?.toString() ?? '';
                 if (first.isNotEmpty) photoUrl = first;
               }
+              hostBio = userData['bio']?.toString() ?? '';
+              hostAge = _calculateAge(userData['birthDate']);
+              hostInstagram = userData['instagramHandle']?.toString() ?? '';
             }
           }
 
@@ -245,7 +391,44 @@ class DiscoverPageState extends State<DiscoverPage> {
 
           final placeName = data['placeName'] ?? 'Restaurante';
           final planType = data['planType'] ?? 'Comida';
+          final paymentType = data['paymentType'] ?? '';
+          final details = data['details'] ?? '';
+          final link = data['link'] ?? '';
           final dateStr = _formatReservationDate(data['dateTime']);
+
+          String locationArea = 'Zona Bogotá';
+          if (data['address'] != null && (data['address'] as String).isNotEmpty) {
+            locationArea = data['address'];
+          } else if (placeName.contains(',')) {
+            final parts = placeName.split(',');
+            if (parts.length > 1 && parts[1].trim().isNotEmpty) {
+              locationArea = parts[1].trim();
+            }
+          }
+
+          final restaurantPhoto = _resolveRestaurantPhoto(data, planType, doc.id);
+
+          newReservationsList.add(
+            ReservationMapItem(
+              id: doc.id,
+              data: data,
+              latLng: latLng,
+              placeName: placeName.contains(',') ? placeName.split(',')[0].trim() : placeName,
+              planType: planType,
+              paymentType: paymentType,
+              details: details,
+              link: link,
+              formattedDate: dateStr,
+              locationText: locationArea,
+              hostUserId: userId ?? '',
+              hostName: userName,
+              hostAge: hostAge,
+              hostBio: hostBio,
+              hostPhoto: photoUrl,
+              hostInstagram: hostInstagram,
+              restaurantPhoto: restaurantPhoto,
+            ),
+          );
 
           newMarkers.add(
             Marker(
@@ -256,11 +439,11 @@ class DiscoverPageState extends State<DiscoverPage> {
                 title: '$userName • $placeName',
                 snippet: '$planType • $dateStr',
                 onTap: () {
-                  _showReservationDetails(doc.id, data, userName, photoUrl);
+                  _openReservationCarousel(initialDocId: doc.id);
                 },
               ),
               onTap: () {
-                _showReservationDetails(doc.id, data, userName, photoUrl);
+                _openReservationCarousel(initialDocId: doc.id);
               },
             ),
           );
@@ -272,6 +455,7 @@ class DiscoverPageState extends State<DiscoverPage> {
       if (mounted) {
         setState(() {
           _markers = newMarkers;
+          _reservationsList = newReservationsList;
         });
       }
     }, onError: (e) {
@@ -279,288 +463,607 @@ class DiscoverPageState extends State<DiscoverPage> {
     });
   }
 
-  void _showReservationDetails(String reservationId, Map<String, dynamic> data, String userName, String photoUrl) {
-    final placeName = data['placeName'] ?? 'Restaurante';
-    final planType = data['planType'] ?? 'Comida';
-    final paymentType = data['paymentType'] ?? '';
-    final details = data['details'] ?? '';
-    final link = data['link'] ?? '';
-    final dateStr = _formatReservationDate(data['dateTime']);
+  void _openReservationCarousel({String? initialDocId}) {
+    if (_reservationsList.isEmpty) return;
 
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final currentUserId = currentUser?.uid ?? '';
-    final hostUserId = data['userId'] as String? ?? '';
-    final bool isMyReservation = (currentUserId.isNotEmpty && currentUserId == hostUserId);
+    int initialIndex = 0;
+    if (initialDocId != null) {
+      final idx = _reservationsList.indexWhere((r) => r.id == initialDocId);
+      if (idx != -1) initialIndex = idx;
+    }
+
+    // Centrar suavemente el mapa en la cita inicial
+    final initialItem = _reservationsList[initialIndex];
+    _mapController?.animateCamera(CameraUpdate.newLatLng(initialItem.latLng));
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AppColors.background,
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Foto y Nombre con acción interactiva para ver perfil
-              InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () {
-                  Navigator.pop(context); // Cierra bottom sheet
-                  if (isMyReservation) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          backgroundColor: AppColors.background,
-                          appBar: AppBar(
-                            backgroundColor: Colors.transparent,
-                            elevation: 0,
-                            leading: IconButton(
-                              icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            title: const Text('Mi Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-                          ),
-                          body: const MyProfilePage(),
-                        ),
-                      ),
-                    );
-                  } else {
-                    if (hostUserId.isNotEmpty) {
-                      UserProfileModal.show(context, userId: hostUserId, name: userName, photo: photoUrl);
-                    }
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  child: Column(
-                    children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: AppColors.surface,
-                        backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-                        onBackgroundImageError: photoUrl.isNotEmpty ? (_, __) {} : null,
-                        child: photoUrl.isEmpty ? const Icon(Icons.person, size: 40, color: AppColors.textLight) : null,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(userName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.primary),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        isMyReservation ? 'Toca para ver o editar tu perfil' : 'Toca para ver el perfil de $userName',
-                        style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
+      builder: (ctx) {
+        final PageController pageController = PageController(initialPage: initialIndex);
+        int currentIndex = initialIndex;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final total = _reservationsList.length;
+            final current = _reservationsList[currentIndex];
+
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 24,
+                    offset: Offset(0, -4),
+                  ),
+                ],
               ),
-              
-              if (isMyReservation) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.primary.withOpacity(0.15)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.person_pin, color: AppColors.primary, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        'Esta es tu cita publicada 📌',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Tirador superior de arrastre
+                  Center(
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                    ],
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 20),
-
-              // Info de la cita
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: Column(
-                  children: [
-                    _buildInfoRow(Icons.place, placeName),
-                    if (dateStr.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      _buildInfoRow(Icons.calendar_month, dateStr),
-                    ],
-                    const SizedBox(height: 12),
-                    _buildInfoRow(Icons.celebration, paymentType.isNotEmpty ? '$planType • $paymentType' : planType),
-                    if (details.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      _buildInfoRow(Icons.info_outline, details),
-                    ],
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-
-              // Botón de Enlace (Resy/OpenTable)
-              if (link.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () async {
-                    try {
-                      final uri = Uri.parse(link.startsWith('http') ? link : 'https://$link');
-                      if (await canLaunchUrl(uri)) {
-                        await launchUrl(uri, mode: LaunchMode.externalApplication);
-                      }
-                    } catch (e) {
-                      debugPrint('Error launching URL: $e');
-                    }
-                  },
-                  icon: const Icon(Icons.link, color: AppColors.primary),
-                  label: const Text('Ver reserva original', style: TextStyle(color: AppColors.primary, fontSize: 16)),
-                ),
-
-              const SizedBox(height: 16),
-
-              // Botón Primario: Unirme (o Aviso si es cita propia)
-              if (isMyReservation)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: AppColors.inputBackground,
-                    borderRadius: BorderRadius.circular(25),
-                    border: Border.all(color: AppColors.inputBorder),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'No puedes solicitar unirte a tu propia cita',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                     ),
                   ),
-                )
-              else
-                StreamBuilder<QuerySnapshot>(
-                  stream: currentUserId.isNotEmpty
-                      ? FirebaseFirestore.instance
-                          .collection('reservation_requests')
-                          .where('reservationId', isEqualTo: reservationId)
-                          .where('requesterUserId', isEqualTo: currentUserId)
-                          .snapshots()
-                      : null,
-                  builder: (context, reqSnap) {
-                    final hasRequested = reqSnap.hasData && reqSnap.data!.docs.isNotEmpty;
-                    final reqStatus = hasRequested
-                        ? (reqSnap.data!.docs.first.data() as Map<String, dynamic>)['status'] ?? 'pending'
-                        : null;
+                  const SizedBox(height: 12),
 
-                    if (hasRequested) {
-                      final isAccepted = reqStatus == 'accepted';
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  // Cabecera: Badge "CITA X DE N" a la izquierda y paginación a la derecha
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Badge: [ 🍸 CITA 1 DE 8 ]
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: isAccepted ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
-                          borderRadius: BorderRadius.circular(25),
-                          border: Border.all(
-                            color: isAccepted ? const Color(0xFF2E7D32).withOpacity(0.3) : const Color(0xFFE65100).withOpacity(0.3),
-                          ),
+                          color: const Color(0xFFEFF2F6),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              isAccepted ? Icons.check_circle : Icons.hourglass_top,
-                              color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
+                            Text(_getPlanIcon(current.planType), style: const TextStyle(fontSize: 12)),
+                            const SizedBox(width: 6),
                             Text(
-                              isAccepted ? '¡Solicitud Aceptada! (Hay Match 🎉)' : 'Solicitud ya enviada (Pendiente ⏳)',
-                              style: TextStyle(
-                                color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                              'RESERVA ${currentIndex + 1} DE $total',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF2C3437),
+                                letterSpacing: 0.5,
                               ),
                             ),
                           ],
                         ),
-                      );
-                    }
-
-                    return SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _openRequestJoinDialog(reservationId, data, hostUserId, userName, placeName);
-                        },
-                        icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                        label: const Text('Solicitar unirme', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
-                        ),
                       ),
-                    );
-                  },
-                ),
 
-              const SizedBox(height: 12),
+                      // Paginación: < [— · ·] >
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Flecha izquierda
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                            splashRadius: 16,
+                            icon: Icon(
+                              Icons.chevron_left_rounded,
+                              size: 24,
+                              color: currentIndex > 0 ? const Color(0xFF1E242B) : Colors.grey.shade300,
+                            ),
+                            onPressed: currentIndex > 0
+                                ? () {
+                                    pageController.previousPage(
+                                      duration: const Duration(milliseconds: 280),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  }
+                                : null,
+                          ),
+                          const SizedBox(width: 4),
 
-              // Botón Secundario: Ver Perfil del creador (o Cerrar si es propia)
-              if (!isMyReservation)
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      if (hostUserId.isNotEmpty) {
-                        UserProfileModal.show(context, userId: hostUserId, name: userName, photo: photoUrl);
-                      }
-                    },
-                    icon: const Icon(Icons.account_circle_outlined, color: AppColors.primary, size: 20),
-                    label: Text('Ver Perfil de $userName', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.primary, width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+                          // Puntos animados
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(
+                              total > 7 ? 7 : total,
+                              (dotIdx) {
+                                final bool isActive = (dotIdx == currentIndex) || (dotIdx == 6 && currentIndex >= 6);
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 220),
+                                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                                  width: isActive ? 16 : 5,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    color: isActive ? const Color(0xFF1A1F24) : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+
+                          // Flecha derecha
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                            splashRadius: 16,
+                            icon: Icon(
+                              Icons.chevron_right_rounded,
+                              size: 24,
+                              color: currentIndex < total - 1 ? const Color(0xFF1E242B) : Colors.grey.shade300,
+                            ),
+                            onPressed: currentIndex < total - 1
+                                ? () {
+                                    pageController.nextPage(
+                                      duration: const Duration(milliseconds: 280),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Carrusel deslizable PageView
+                  SizedBox(
+                    height: 385,
+                    child: PageView.builder(
+                      controller: pageController,
+                      itemCount: total,
+                      onPageChanged: (newIdx) {
+                        setModalState(() {
+                          currentIndex = newIdx;
+                        });
+                        final item = _reservationsList[newIdx];
+                        // Sincronizar el mapa en vivo hacia la cita deslizada
+                        _mapController?.animateCamera(
+                          CameraUpdate.newLatLng(item.latLng),
+                        );
+                      },
+                      itemBuilder: (context, idx) {
+                        final res = _reservationsList[idx];
+                        return _buildReservationCardContent(context, res);
+                      },
                     ),
                   ),
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.divider),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
-                    ),
-                    child: const Text('Cerrar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                  ),
-                ),
-              const SizedBox(height: 10),
-            ],
-          ),
+                ],
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildReservationCardContent(BuildContext context, ReservationMapItem res) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final bool isMine = (currentUserId.isNotEmpty && currentUserId == res.hostUserId);
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Imagen Banner del Restaurante / Lugar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 175,
+                  child: Image.network(
+                    res.restaurantPhoto,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (ctx, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: const Color(0xFFEEF1F6),
+                        child: const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                        ),
+                      );
+                    },
+                    errorBuilder: (_, __, ___) => Container(
+                      color: const Color(0xFF262C36),
+                      child: const Center(
+                        child: Icon(Icons.restaurant, color: Colors.white70, size: 40),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Degradado inferior
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.2),
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.55),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Pill Superior Izquierda: "🔍 Toca para ampliar"
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: GestureDetector(
+                    onTap: () => _showFullImageDialog(context, res.restaurantPhoto, res.placeName),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search, size: 13, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text(
+                            'Toca para ampliar',
+                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Pill Superior Derecha: Tipo de Plan (Ej: "Cena & Tragos 🍸")
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.65),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white24, width: 0.8),
+                    ),
+                    child: Text(
+                      '${res.planType} ${_getPlanIcon(res.planType)}',
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+
+                // Pill Inferior Izquierda: Instagram tag o enlace
+                if (res.hostInstagram.isNotEmpty)
+                  Positioned(
+                    bottom: 10,
+                    left: 10,
+                    child: GestureDetector(
+                      onTap: () async {
+                        final uri = Uri.parse('https://instagram.com/${res.hostInstagram}');
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF833AB4), Color(0xFFFD1D1D), Color(0xFFFCB045)],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.25),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.camera_alt, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              '@${res.hostInstagram}',
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else if (res.link.isNotEmpty)
+                  Positioned(
+                    bottom: 10,
+                    left: 10,
+                    child: GestureDetector(
+                      onTap: () async {
+                        final uri = Uri.parse(res.link.startsWith('http') ? res.link : 'https://${res.link}');
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.65),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.white24, width: 0.8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.link, size: 12, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text(
+                              'Ver Reserva',
+                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // 2. Nombre del Restaurante / Lugar
+          Text(
+            res.placeName,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF161A1D),
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // 3. Ubicación y Fecha / Hora
+          Row(
+            children: [
+              const Icon(Icons.place, size: 15, color: Color(0xFF6B7280)),
+              const SizedBox(width: 4),
+              Text(
+                res.locationText,
+                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 14),
+              const Icon(Icons.access_time_filled, size: 15, color: Color(0xFF6B7280)),
+              const SizedBox(width: 4),
+              Text(
+                res.formattedDate,
+                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // 4. Tarjeta del Anfitrión (Estilo Mateo, 28)
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () {
+              Navigator.pop(context);
+              if (isMine) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => Scaffold(
+                      backgroundColor: AppColors.background,
+                      appBar: AppBar(
+                        backgroundColor: Colors.transparent,
+                        elevation: 0,
+                        leading: IconButton(
+                          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        title: const Text('Mi Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+                      ),
+                      body: const MyProfilePage(),
+                    ),
+                  ),
+                );
+              } else {
+                UserProfileModal.show(context, userId: res.hostUserId, name: res.hostName, photo: res.hostPhoto);
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF6F8FA),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    backgroundImage: res.hostPhoto.isNotEmpty ? NetworkImage(res.hostPhoto) : null,
+                    child: res.hostPhoto.isEmpty ? const Icon(Icons.person, color: Colors.grey, size: 22) : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RichText(
+                          text: TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: 'ANFITRIÓN: ',
+                                style: TextStyle(
+                                  color: Color(0xFF6B7280),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              TextSpan(
+                                text: res.hostAge != null ? '${res.hostName}, ${res.hostAge}' : res.hostName,
+                                style: const TextStyle(
+                                  color: Color(0xFF111827),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          res.hostBio.isNotEmpty
+                              ? res.hostBio
+                              : (res.details.isNotEmpty ? res.details : 'Toca para ver el perfil completo.'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF9CA3AF)),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // 5. Botón Principal: "Solicitar unirme a [Nombre]"
+          if (isMine)
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Esta es tu reserva publicada. Puedes gestionarla en la pestaña Reservas 📌'),
+                      backgroundColor: AppColors.primary,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.verified_user, color: Colors.white, size: 18),
+                label: const Text(
+                  'Tu Reserva Publicada 📌',
+                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E242B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            )
+          else
+            StreamBuilder<QuerySnapshot>(
+              stream: currentUserId.isNotEmpty
+                  ? FirebaseFirestore.instance
+                      .collection('reservation_requests')
+                      .where('reservationId', isEqualTo: res.id)
+                      .where('requesterUserId', isEqualTo: currentUserId)
+                      .snapshots()
+                  : null,
+              builder: (context, reqSnap) {
+                final hasRequested = reqSnap.hasData && reqSnap.data!.docs.isNotEmpty;
+                final reqStatus = hasRequested
+                    ? (reqSnap.data!.docs.first.data() as Map<String, dynamic>)['status'] ?? 'pending'
+                    : null;
+
+                if (hasRequested) {
+                  final isAccepted = reqStatus == 'accepted';
+                  return Container(
+                    width: double.infinity,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: isAccepted ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isAccepted
+                            ? const Color(0xFF2E7D32).withOpacity(0.3)
+                            : const Color(0xFFE65100).withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isAccepted ? Icons.check_circle : Icons.hourglass_top,
+                          color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isAccepted ? '¡Solicitud Aceptada! (Hay Match 🎉)' : 'Solicitud enviada (Pendiente ⏳)',
+                          style: TextStyle(
+                            color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _openRequestJoinDialog(res.id, res.data, res.hostUserId, res.hostName, res.placeName);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF16181F),
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text(
+                      'Solicitar unirme a ${res.hostName}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 
@@ -614,7 +1117,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Solicitar unirte a la cita',
+                        'Solicitar unirte a la reserva',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                       ),
                       IconButton(
@@ -699,8 +1202,8 @@ class DiscoverPageState extends State<DiscoverPage> {
                                   'interactionHistory': [
                                     {
                                       'type': 'created',
-                                      'title': 'Cita publicada',
-                                      'description': '$hostUserName publicó esta cita en el mapa.',
+                                      'title': 'Reserva publicada',
+                                      'description': '$hostUserName publicó esta reserva en el mapa.',
                                       'timestamp': reservationData['createdAt'] ?? now,
                                     },
                                     {
@@ -754,15 +1257,6 @@ class DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.primary, size: 20),
-        const SizedBox(width: 12),
-        Expanded(child: Text(text, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16))),
-      ],
-    );
-  }
 
   Set<Marker> get _combinedMarkers {
     final markers = Set<Marker>.from(_markers);
@@ -798,19 +1292,50 @@ class DiscoverPageState extends State<DiscoverPage> {
     };
   }
 
+  static const String _cleanMapStyle = '''
+  [
+    {
+      "featureType": "poi",
+      "elementType": "all",
+      "stylers": [
+        { "visibility": "off" }
+      ]
+    },
+    {
+      "featureType": "transit",
+      "elementType": "all",
+      "stylers": [
+        { "visibility": "off" }
+      ]
+    },
+    {
+      "featureType": "road",
+      "elementType": "labels.icon",
+      "stylers": [
+        { "visibility": "off" }
+      ]
+    }
+  ]
+  ''';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Vista 1: Mapa de Google con Citas
+          // Vista 1: Mapa de Google con Citas (Estilo limpio sin POIs externos)
           if (!_showPeopleDiscovery) ...[
             GoogleMap(
               initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
               myLocationEnabled: false,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              compassEnabled: false,
+              indoorViewEnabled: false,
+              trafficEnabled: false,
+              style: _cleanMapStyle,
               markers: _combinedMarkers,
               circles: _mapCircles,
               onMapCreated: (GoogleMapController controller) {
@@ -818,37 +1343,46 @@ class DiscoverPageState extends State<DiscoverPage> {
               },
             ),
             
-            // Badge indicador de citas activas
+            // Badge indicador de citas activas (Toca para abrir el carrusel de citas)
             Positioned(
               top: 106,
               left: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.surface.withOpacity(0.95),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.celebration, color: AppColors.primary, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${_markers.length} ${_markers.length == 1 ? "cita activa" : "citas activas"}',
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+              child: GestureDetector(
+                onTap: () {
+                  if (_reservationsList.isNotEmpty) {
+                    _openReservationCarousel();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.celebration, color: AppColors.primary, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${_markers.length} ${_markers.length == 1 ? "reserva activa" : "reservas activas"}',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.touch_app_rounded, color: AppColors.primary, size: 14),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -932,7 +1466,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                             Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
                             const SizedBox(width: 6),
                             Text(
-                              'Citas en Mapa',
+                              'Reservas en Mapa',
                               style: TextStyle(
                                 color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
                                 fontWeight: FontWeight.bold,

@@ -141,16 +141,404 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
 
   void _swipeRight() {
     if (_currentIndex >= _candidates.length) return;
-    final candidate = _candidates[_currentIndex];
-
-    // Registrar Like y verificar Match
-    _handleLike(candidate);
-
     setState(() {
       _dragOffset = Offset.zero;
       _dragAngle = 0;
-      _currentIndex++;
-      _currentPhotoIndex = 0;
+    });
+    final candidate = _candidates[_currentIndex];
+    _promptDateInvitation(candidate);
+  }
+
+  void _promptDateInvitation(Map<String, dynamic> candidate) {
+    final candidateName = candidate['name'] ?? 'Usuario';
+    final rawPhotos = (candidate['photoUrls'] as List?) ?? (candidate['photos'] as List?) ?? [];
+    final candidatePhoto = rawPhotos.isNotEmpty ? rawPhotos[0].toString() : '';
+
+    final placeCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
+
+    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    TimeOfDay selectedTime = const TimeOfDay(hour: 20, minute: 0);
+    String selectedPlan = 'Cena';
+    String selectedPayment = 'Yo invito';
+    bool isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalCtx) {
+        return StatefulBuilder(
+          builder: (modalContentCtx, setModalState) {
+            return Container(
+              padding: EdgeInsets.only(
+                top: 20,
+                left: 20,
+                right: 20,
+                bottom: MediaQuery.of(modalContentCtx).viewInsets.bottom + 24,
+              ),
+              decoration: const BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Encabezado con foto y nombre
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          backgroundColor: AppColors.inputBackground,
+                          backgroundImage: (candidatePhoto.isNotEmpty && (candidatePhoto.startsWith('http://') || candidatePhoto.startsWith('https://')))
+                              ? NetworkImage(candidatePhoto)
+                              : null,
+                          child: candidatePhoto.isEmpty
+                              ? const Icon(Icons.person, color: AppColors.textLight)
+                              : null,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Invitar a $candidateName',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Personaliza los detalles de tu cita 💕',
+                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            Navigator.pop(modalCtx);
+                            setState(() {
+                              _dragOffset = Offset.zero;
+                              _dragAngle = 0;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const Divider(color: AppColors.divider, height: 24),
+
+                    // 1. Lugar o Restaurante
+                    const Text('Lugar o Restaurante para la cita *',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: placeCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Ej: Crepes & Waffles, Starbucks, Cine...',
+                        hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        prefixIcon: const Icon(Icons.restaurant_outlined, color: AppColors.primary, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Sugerencias rápidas de lugares
+                    Wrap(
+                      spacing: 6,
+                      children: ['Restaurante', 'Café', 'Cine', 'Bar / Tragos', 'Parque'].map((sug) {
+                        return ActionChip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text(sug, style: const TextStyle(fontSize: 11, color: AppColors.textPrimary)),
+                          backgroundColor: AppColors.surface,
+                          side: const BorderSide(color: AppColors.divider),
+                          onPressed: () {
+                            setModalState(() {
+                              placeCtrl.text = sug;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 2. Fecha y Hora
+                    const Text('Fecha y Hora propuesta',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (d != null) setModalState(() => selectedDate = d);
+                            },
+                            icon: const Icon(Icons.calendar_month, size: 16, color: AppColors.primary),
+                            label: Text(
+                              '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppColors.inputBorder),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final t = await showTimePicker(
+                                context: context,
+                                initialTime: selectedTime,
+                              );
+                              if (t != null) setModalState(() => selectedTime = t);
+                            },
+                            icon: const Icon(Icons.access_time, size: 16, color: AppColors.primary),
+                            label: Text(
+                              selectedTime.format(context),
+                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppColors.inputBorder),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 3. Tipo de Plan
+                    const Text('Tipo de Plan',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: ['Cena', 'Café', 'Tragos', 'Cine', 'Paseo'].map((p) {
+                        final isSelected = selectedPlan == p;
+                        return ChoiceChip(
+                          label: Text(p),
+                          selected: isSelected,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : AppColors.textPrimary,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 12,
+                          ),
+                          onSelected: (val) {
+                            if (val) setModalState(() => selectedPlan = p);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 4. Modalidad (Quién invita)
+                    const Text('Modalidad de la Cita',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: ['Yo invito', '50 / 50'].map((pm) {
+                        final isSelected = selectedPayment == pm;
+                        return ChoiceChip(
+                          label: Text(pm == 'Yo invito' ? 'Yo invito 🍸' : '50 / 50 🤝'),
+                          selected: isSelected,
+                          selectedColor: Colors.pinkAccent,
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : AppColors.textPrimary,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 12,
+                          ),
+                          onSelected: (val) {
+                            if (val) setModalState(() => selectedPayment = pm);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 5. Mensaje personalizado
+                    const Text('Mensaje o propuesta (opcional)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: messageCtrl,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        hintText: 'Ej: ¡Hola! Me encantó tu vibra, ¿vamos por un café este fin de semana?',
+                        hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 12),
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Botón Enviar Invitación
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                final place = placeCtrl.text.trim();
+                                if (place.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Por favor indica el lugar o restaurante para la cita'),
+                                      behavior: SnackBarBehavior.floating,
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                setModalState(() => isSubmitting = true);
+                                final user = FirebaseAuth.instance.currentUser;
+                                if (user == null) {
+                                  setModalState(() => isSubmitting = false);
+                                  return;
+                                }
+
+                                try {
+                                  final combinedDateTime = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    selectedTime.hour,
+                                    selectedTime.minute,
+                                  );
+
+                                  final invRef = FirebaseFirestore.instance.collection('invitations').doc();
+                                  await invRef.set({
+                                    'id': invRef.id,
+                                    'senderId': user.uid,
+                                    'senderName': _myName,
+                                    'senderPhoto': _myPhoto,
+                                    'receiverId': candidate['id'],
+                                    'receiverName': candidateName,
+                                    'receiverPhoto': candidatePhoto,
+                                    'placeName': place,
+                                    'planType': selectedPlan,
+                                    'paymentType': selectedPayment,
+                                    'dateTime': Timestamp.fromDate(combinedDateTime),
+                                    'message': messageCtrl.text.trim(),
+                                    'status': 'pending',
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                  });
+
+                                  // Guardar Like emitido
+                                  await _handleLike(candidate, notifyMatch: false);
+
+                                  if (!mounted) return;
+                                  if (modalCtx.mounted) {
+                                    Navigator.pop(modalCtx);
+                                  }
+
+                                  setState(() {
+                                    _dragOffset = Offset.zero;
+                                    _dragAngle = 0;
+                                    _currentIndex++;
+                                    _currentPhotoIndex = 0;
+                                  });
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('¡Invitación a cita enviada a $candidateName! 💌 Llegará a su módulo de Invitaciones.'),
+                                      backgroundColor: AppColors.primary,
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  setModalState(() => isSubmitting = false);
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error al enviar invitación: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
+                              },
+                        icon: isSubmitting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Icon(Icons.favorite, color: Colors.white, size: 18),
+                        label: Text(
+                          isSubmitting ? 'Enviando invitación...' : 'Enviar Invitación a Cita 💌',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pinkAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pop(modalCtx);
+                          setState(() {
+                            _dragOffset = Offset.zero;
+                            _dragAngle = 0;
+                          });
+                        },
+                        child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _dragOffset = Offset.zero;
+          _dragAngle = 0;
+        });
+      }
     });
   }
 
@@ -164,7 +552,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
     });
   }
 
-  Future<void> _handleLike(Map<String, dynamic> candidate) async {
+  Future<void> _handleLike(Map<String, dynamic> candidate, {bool notifyMatch = true}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -186,7 +574,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
       final reciprocalLikeId = '${candidateId}_${user.uid}';
       final reciprocalDoc = await FirebaseFirestore.instance.collection('likes').doc(reciprocalLikeId).get();
 
-      if (reciprocalDoc.exists) {
+      if (reciprocalDoc.exists && notifyMatch) {
         // ¡ES UN MATCH MUTUO!
         final matchRef = FirebaseFirestore.instance.collection('matches').doc();
         await matchRef.set({
@@ -424,7 +812,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
 
         // Botones de Acción (Tinder Bar)
         _buildActionButtons(),
-        const SizedBox(height: 16),
+        const SizedBox(height: 90),
       ],
     );
   }
@@ -723,10 +1111,10 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
             },
           ),
 
-          // Botón Me Gusta (LIKE)
+          // Botón Me Gusta / Invitar a Cita (LIKE)
           _buildCircleButton(
             icon: Icons.favorite,
-            color: Colors.green,
+            color: Colors.pinkAccent,
             size: 58,
             iconSize: 28,
             onTap: _swipeRight,
@@ -791,8 +1179,8 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
             const SizedBox(height: 8),
             Text(
               _myInterestedIn != null
-                  ? 'Revisaste todos los perfiles de "$_myInterestedIn". Vuelve más tarde para conocer nuevas personas o explora las citas en el mapa.'
-                  : 'Vuelve más tarde para conocer nuevas personas o explora las citas en el mapa.',
+                  ? 'Revisaste todos los perfiles de "$_myInterestedIn". Vuelve más tarde para conocer nuevas personas o explora las reservas en el mapa.'
+                  : 'Vuelve más tarde para conocer nuevas personas o explora las reservas en el mapa.',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
@@ -800,7 +1188,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
             ElevatedButton.icon(
               onPressed: widget.onSwitchToMap,
               icon: const Icon(Icons.map, color: Colors.white),
-              label: const Text('Ver Citas en el Mapa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              label: const Text('Ver Reservas en el Mapa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),

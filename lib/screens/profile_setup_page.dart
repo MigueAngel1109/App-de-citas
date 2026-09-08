@@ -63,7 +63,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     {'title': 'Relación a largo plazo', 'desc': 'Buscando algo formal y duradero', 'icon': Icons.favorite},
     {'title': 'A largo plazo pero abierto a corto', 'desc': 'Quiero compromiso, pero sin prisa', 'icon': Icons.hourglass_bottom},
     {'title': 'A corto plazo pero abierto a largo', 'desc': 'Empezando casual y ver qué surge', 'icon': Icons.local_fire_department},
-    {'title': 'Diversión a corto plazo', 'desc': 'Citas divertidas sin ataduras', 'icon': Icons.nightlife},
+    {'title': 'Diversión a corto plazo', 'desc': 'Salidas divertidas sin ataduras', 'icon': Icons.nightlife},
     {'title': 'Hacer amigos', 'desc': 'Conectar con personas afines', 'icon': Icons.group},
     {'title': 'Aún no lo tengo claro', 'desc': 'Viendo qué depara la experiencia', 'icon': Icons.help_outline},
   ];
@@ -1064,7 +1064,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                       Text(
                         _userLocation != null
                             ? 'Lat: ${_userLocation!.latitude.toStringAsFixed(3)}, Lng: ${_userLocation!.longitude.toStringAsFixed(3)}'
-                            : 'Requerida para encontrar citas y perfiles cercanos',
+                            : 'Requerida para encontrar reservas y perfiles cercanos',
                         style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                       ),
                     ],

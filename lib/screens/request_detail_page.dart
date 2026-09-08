@@ -54,7 +54,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       final requesterId = currentData['requesterUserId'] ?? '';
       final requesterName = currentData['requesterName'] ?? 'Usuario';
       final requesterPhoto = currentData['requesterPhoto'] ?? '';
-      final placeName = currentData['placeName'] ?? 'la cita';
+      final placeName = currentData['placeName'] ?? 'la reserva';
       final reservationId = currentData['reservationId'] ?? '';
 
       // Obtener foto y nombre del anfitrión
@@ -110,7 +110,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
           },
           'status': 'matched',
           'createdAt': FieldValue.serverTimestamp(),
-          'lastMessage': '¡Match confirmado para la cita en $placeName! 🎉',
+          'lastMessage': '¡Match confirmado para la reserva en $placeName! 🎉',
           'lastMessageTime': FieldValue.serverTimestamp(),
         });
 
@@ -345,7 +345,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
               : widget.initialData;
 
           final placeName = data['placeName'] ?? 'Restaurante';
-          final planType = data['planType'] ?? 'Cita';
+          final planType = data['planType'] ?? 'Reserva';
           final paymentType = data['paymentType'] ?? '';
           final dateTimeStr = _formatDateTime(data['dateTime']);
           final requesterName = data['requesterName'] ?? 'Usuario';
@@ -394,7 +394,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('LUGAR DE LA CITA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textLight, letterSpacing: 0.8)),
+                                    const Text('LUGAR DE LA RESERVA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textLight, letterSpacing: 0.8)),
                                     Text(
                                       placeName,
                                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
@@ -464,7 +464,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                                     ),
                                     const SizedBox(height: 4),
-                                    const Text('Quiere acompañarte a esta cita', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                    const Text('Quiere acompañarte a esta reserva', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                                   ],
                                 ),
                               ),
@@ -583,7 +583,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                                 icon: _isProcessing
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                                     : const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                                label: const Text('Aceptar Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                                label: const Text('Aceptar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primary,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
@@ -659,7 +659,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         bg = const Color(0xFFE8F5E9);
         fg = const Color(0xFF2E7D32);
         icon = Icons.check_circle;
-        text = '¡Cita Aceptada! Tienes un Match activo 🎉';
+        text = '¡Reserva Aceptada! Tienes un Match activo 🎉';
         break;
       case 'rejected':
         bg = const Color(0xFFFFEBEE);
@@ -704,12 +704,12 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         }
       }
     } else {
-      // Evento 1: Cita publicada
+      // Evento 1: Reserva publicada
       if (data['createdAt'] != null) {
         items.add({
           'type': 'created',
-          'title': 'Cita publicada',
-          'description': 'Publicaste esta cita en el mapa.',
+          'title': 'Reserva publicada',
+          'description': 'Publicaste esta reserva en el mapa.',
           'timestamp': data['createdAt'],
         });
       }
@@ -725,7 +725,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         items.add({
           'type': 'status_accepted',
           'title': 'Solicitud aceptada',
-          'description': 'Aceptaste la cita. ¡Se generó el match!',
+          'description': 'Aceptaste la reserva. ¡Se generó el match!',
           'timestamp': data['updatedAt'] ?? Timestamp.now(),
         });
       } else if (data['status'] == 'rejected') {

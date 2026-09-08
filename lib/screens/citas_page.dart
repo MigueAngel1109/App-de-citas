@@ -4,23 +4,29 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
 import 'publish_reservation_page.dart';
 import 'request_detail_page.dart';
+import 'chats_page.dart';
 
-class CitasPage extends StatefulWidget {
+class ReservasPage extends StatefulWidget {
   final Function(GeoPoint?)? onPublished;
 
-  const CitasPage({super.key, this.onPublished});
+  const ReservasPage({super.key, this.onPublished});
 
   @override
-  State<CitasPage> createState() => _CitasPageState();
+  State<ReservasPage> createState() => _ReservasPageState();
 }
 
-class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMixin {
+typedef CitasPage = ReservasPage;
+
+class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -113,7 +119,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Editar Cita Publicada',
+                          'Editar Reserva Publicada',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                         ),
                         IconButton(
@@ -227,7 +233,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                     const SizedBox(height: 14),
 
                     // Detalles / Mensaje
-                    const Text('Detalles de la Cita', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+                    const Text('Detalles de la Reserva', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
                     const SizedBox(height: 6),
                     TextField(
                       controller: detailsCtrl,
@@ -269,7 +275,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Cita actualizada correctamente 🎉'),
+                                content: Text('Reserva actualizada correctamente 🎉'),
                                 backgroundColor: AppColors.primary,
                                 behavior: SnackBarBehavior.floating,
                               ),
@@ -300,8 +306,8 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('¿Eliminar cita?'),
-        content: Text('¿Estás seguro de que deseas eliminar la cita en "$placeName"? Desaparecerá del mapa y de las búsquedas.'),
+        title: const Text('¿Eliminar reserva?'),
+        content: Text('¿Estás seguro de que deseas eliminar la reserva en "$placeName"? Desaparecerá del mapa y de las búsquedas.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
@@ -316,7 +322,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Cita eliminada correctamente'),
+                      content: Text('Reserva eliminada correctamente'),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -341,7 +347,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       return const Scaffold(
-        body: Center(child: Text('Inicia sesión para gestionar tus citas')),
+        body: Center(child: Text('Inicia sesión para gestionar tus reservas')),
       );
     }
 
@@ -352,7 +358,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
-          'Módulo de Citas',
+          'Módulo de Reservas',
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
         ),
         bottom: TabBar(
@@ -396,7 +402,38 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                 );
               },
             ),
-            const Tab(text: 'Mis Citas Publicadas'),
+            const Tab(text: 'Mis Reservas'),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('matches')
+                  .where('users', arrayContains: currentUser.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                return Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Chats'),
+                      if (count > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -405,23 +442,25 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
         children: [
           _buildRequestsTab(currentUser.uid),
           _buildMyReservationsTab(currentUser.uid),
+          const ChatsPage(isEmbedded: true),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.primary,
-        icon: const Icon(Icons.add_circle, color: Colors.white),
-        label: const Text('Publicar Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PublishReservationPage(
+      floatingActionButton: _tabController.index != 2
+          ? FloatingActionButton.extended(
+              backgroundColor: AppColors.primary,
+              icon: const Icon(Icons.add_circle, color: Colors.white),
+              label: const Text('Publicar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PublishReservationPage(
                 onPublished: (loc) {
                   Navigator.pop(context);
                   widget.onPublished?.call(loc);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('¡Cita publicada con éxito! Ya puedes verla en Mis Citas y en el mapa 🎉'),
+                      content: Text('¡Reserva publicada con éxito! Ya puedes verla en Mis Reservas y en el mapa 🎉'),
                       backgroundColor: AppColors.primary,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -431,7 +470,8 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
             ),
           );
         },
-      ),
+      )
+    : null,
     );
   }
 
@@ -477,7 +517,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Cuando otros usuarios vean tus citas en el mapa y soliciten unirse, aparecerán aquí para que revises su perfil y decidas si hay match.',
+                    'Cuando otros usuarios vean tus reservas en el mapa y soliciten unirse, aparecerán aquí para que revises su perfil y decidas si hay match.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
                   ),
@@ -501,7 +541,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
         });
 
         return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
           itemCount: sortedDocs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
@@ -510,7 +550,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
 
             final requesterName = data['requesterName'] ?? 'Usuario';
             final requesterPhoto = data['requesterPhoto'] ?? '';
-            final placeName = data['placeName'] ?? 'Cita';
+            final placeName = data['placeName'] ?? 'Reserva';
             final dateTimeStr = _formatDateTime(data['dateTime']);
             final status = data['status'] ?? 'pending';
             final message = data['message'] ?? '';
@@ -654,7 +694,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
         }
 
         if (snapshot.hasError) {
-          return Center(child: Text('Error al cargar tus citas: ${snapshot.error}'));
+          return Center(child: Text('Error al cargar tus reservas: ${snapshot.error}'));
         }
 
         final docs = snapshot.data?.docs ?? [];
@@ -676,7 +716,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 18),
                   const Text(
-                    'Aún no has publicado ninguna cita',
+                    'Aún no has publicado ninguna reserva',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                   ),
                   const SizedBox(height: 8),
@@ -701,7 +741,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                       );
                     },
                     icon: const Icon(Icons.add_circle, color: Colors.white),
-                    label: const Text('Publicar Mi Primera Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    label: const Text('Publicar Mi Primera Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
@@ -728,7 +768,7 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
         });
 
         return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
           itemCount: sortedDocs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 14),
           itemBuilder: (context, index) {
@@ -795,12 +835,12 @@ class _CitasPageState extends State<CitasPage> with SingleTickerProviderStateMix
                       // Acciones: Editar y Eliminar
                       IconButton(
                         icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.primary),
-                        tooltip: 'Editar cita',
+                        tooltip: 'Editar reserva',
                         onPressed: () => _showEditReservationDialog(doc.id, data),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
-                        tooltip: 'Eliminar cita',
+                        tooltip: 'Eliminar reserva',
                         onPressed: () => _confirmDeleteReservation(doc.id, placeName),
                       ),
                     ],
