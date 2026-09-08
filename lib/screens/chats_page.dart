@@ -1,0 +1,193 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../utils/app_colors.dart';
+import 'chat_detail_page.dart';
+
+class ChatsPage extends StatelessWidget {
+  const ChatsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return const Scaffold(
+        body: Center(child: Text('Inicia sesión para ver tus chats')),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Text(
+          'Chats y Matches',
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('matches')
+            .where('users', arrayContains: currentUser.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('Error al cargar conversaciones: ${snapshot.error}'));
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(22),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.divider),
+                      ),
+                      child: const Icon(Icons.forum_outlined, size: 50, color: AppColors.textLight),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'No tienes chats activos aún',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Cuando aceptes una solicitud de cita o alguien acepte una de tus solicitudes, se creará un match y podrás chatear aquí para coordinar el encuentro 🎉',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final data = docs[index].data() as Map<String, dynamic>;
+              final users = (data['users'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+              final otherUserId = users.firstWhere((id) => id != currentUser.uid, orElse: () => '');
+
+              final userNames = data['userNames'] as Map<String, dynamic>? ?? {};
+              final userPhotos = data['userPhotos'] as Map<String, dynamic>? ?? {};
+
+              final otherName = userNames[otherUserId] ?? 'Tu Match';
+              final otherPhoto = userPhotos[otherUserId] ?? '';
+              final placeName = data['placeName'] ?? 'Cita';
+              final lastMessage = data['lastMessage'] ?? '¡Match confirmado!';
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ChatDetailPage(
+                        lugar: {
+                          'nombre': placeName,
+                          'hora': 'Confirmada',
+                          'icono': '🍷',
+                        },
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppColors.divider),
+                  ),
+                  child: Row(
+                    children: [
+                      Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: AppColors.inputBackground,
+                            backgroundImage: (otherPhoto.isNotEmpty && (otherPhoto.startsWith('http://') || otherPhoto.startsWith('https://')))
+                                ? NetworkImage(otherPhoto)
+                                : null,
+                            child: otherPhoto.isEmpty
+                                ? const Icon(Icons.person, color: AppColors.textLight)
+                                : null,
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: const BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.favorite, size: 10, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  otherName,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.pinkAccent.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text('Match', style: TextStyle(color: Colors.pinkAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Cita: $placeName',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              lastMessage,
+                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
