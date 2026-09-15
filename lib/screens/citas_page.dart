@@ -60,7 +60,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
   }
 
   // -------------------------------------------------------------
-  // DIÁLOGO PARA EDITAR CITA
+  // DIÁLOGO PARA EDITAR RESERVA
   // -------------------------------------------------------------
   void _showEditReservationDialog(String docId, Map<String, dynamic> data) {
     final placeCtrl = TextEditingController(text: data['placeName'] ?? '');
@@ -300,7 +300,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
   }
 
   // -------------------------------------------------------------
-  // DIÁLOGO PARA ELIMINAR CITA
+  // DIÁLOGO PARA ELIMINAR RESERVA
   // -------------------------------------------------------------
   void _confirmDeleteReservation(String docId, String placeName) {
     showDialog(
@@ -358,7 +358,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
-          'Módulo de Reservas',
+          'Reservas',
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
         ),
         bottom: TabBar(
@@ -680,7 +680,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
   }
 
   // =============================================================
-  // PESTAÑA 2: MIS CITAS PUBLICADAS
+  // PESTAÑA 2: MIS RESERVAS PUBLICADAS
   // =============================================================
   Widget _buildMyReservationsTab(String currentUserId) {
     return StreamBuilder<QuerySnapshot>(
@@ -863,7 +863,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                         ),
                       ),
-                      // Stream de conteo de solicitudes para esta cita
+                      // Stream de conteo de solicitudes para esta reserva
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('reservation_requests')

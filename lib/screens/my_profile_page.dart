@@ -309,17 +309,14 @@ class MyProfilePage extends StatelessWidget {
                   const SizedBox(height: 20),
                 ],
 
-                // Trabajo & Escuela
-                if (work.isNotEmpty || school.isNotEmpty) ...[
-                  _buildSectionHeader('Ocupación y Estudios'),
+                // Trabajo
+                if (work.isNotEmpty) ...[
+                  _buildSectionHeader('Ocupación'),
                   _buildInfoCard(
                     Column(
                       children: [
                         if (work.isNotEmpty)
                           _buildListTileInfo(Icons.work_outline, work),
-                        if (work.isNotEmpty && school.isNotEmpty) const Divider(height: 16),
-                        if (school.isNotEmpty)
-                          _buildListTileInfo(Icons.school_outlined, school),
                       ],
                     ),
                   ),
@@ -329,20 +326,22 @@ class MyProfilePage extends StatelessWidget {
                 // Intereses y Pasiones
                 if (interests.isNotEmpty) ...[
                   _buildSectionHeader('Intereses y Pasiones'),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: interests.map((tag) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.inputBorder),
-                        ),
-                        child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
-                      );
-                    }).toList(),
+                  _buildInfoCard(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: interests.map((tag) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppColors.inputBorder),
+                          ),
+                          child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                        );
+                      }).toList(),
+                    ),
                   ),
                   const SizedBox(height: 20),
                 ],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +12,7 @@ import '../utils/marker_generator.dart';
 import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
+import '../utils/zone_data.dart';
 
 class ReservationMapItem {
   final String id;
@@ -70,6 +72,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   List<ReservationMapItem> _reservationsList = [];
   bool _isLoadingLocation = true;
   bool _showPeopleDiscovery = false;
+  final Set<String> _preferredZones = {};
 
   // Icono del punto azul para la ubicación actual
   BitmapDescriptor? _blueDotIcon;
@@ -99,26 +102,24 @@ class DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _initBlueDot() async {
-    try {
-      final icon = await createCurrentLocationMarkerBitmap();
-      if (mounted) {
-        setState(() {
-          _blueDotIcon = icon;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error init blue dot: $e');
-    }
+    // No-op ya que no usamos ubicación
   }
 
   void _listenToCurrentUserProfile() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _userSub = FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((snap) {
-      if (mounted) {
-        setState(() {
-          _markerCache.clear(); // Limpiar caché para re-dibujar marcadores con fotos frescas
-        });
+        if (mounted) {
+          setState(() {
+            _markerCache.clear(); // Limpiar caché para re-dibujar marcadores con fotos frescas
+            if (snap.exists && snap.data() != null) {
+              final data = snap.data()!;
+              if (data['preferredZones'] != null && data['preferredZones'] is List) {
+                _preferredZones.clear();
+                _preferredZones.addAll((data['preferredZones'] as List).map((e) => e.toString()));
+              }
+            }
+          });
         _listenToReservations(); // Refrescar marcadores en el mapa con las fotos actualizadas
       }
     });
@@ -172,58 +173,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) setState(() => _isLoadingLocation = false);
-      return;
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) setState(() => _isLoadingLocation = false);
-        return;
-      }
-    }
-    
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isLoadingLocation = false);
-      return;
-    } 
-
-    try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-          _isLoadingLocation = false;
-        });
-        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition, 14.0));
-      }
-
-      // Escuchar actualizaciones de posición en vivo para mantener el punto azul siempre al día
-      _positionStreamSub?.cancel();
-      _positionStreamSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 3,
-        ),
-      ).listen((pos) {
-        if (mounted) {
-          setState(() {
-            _currentPosition = LatLng(pos.latitude, pos.longitude);
-          });
-        }
-      });
-    } catch(e) {
-      if (mounted) setState(() => _isLoadingLocation = false);
-    }
+    if (mounted) setState(() => _isLoadingLocation = false);
   }
 
   int? _calculateAge(dynamic birthDate) {
@@ -472,7 +422,7 @@ class DiscoverPageState extends State<DiscoverPage> {
       if (idx != -1) initialIndex = idx;
     }
 
-    // Centrar suavemente el mapa en la cita inicial
+    // Centrar suavemente el mapa en la reserva inicial
     final initialItem = _reservationsList[initialIndex];
     _mapController?.animateCamera(CameraUpdate.newLatLng(initialItem.latLng));
 
@@ -521,11 +471,11 @@ class DiscoverPageState extends State<DiscoverPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Cabecera: Badge "CITA X DE N" a la izquierda y paginación a la derecha
+                  // Cabecera: Badge "RESERVA X DE N" a la izquierda y paginación a la derecha
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Badge: [ 🍸 CITA 1 DE 8 ]
+                      // Badge: [ 🍸 RESERVA 1 DE 8 ]
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
@@ -634,7 +584,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                           currentIndex = newIdx;
                         });
                         final item = _reservationsList[newIdx];
-                        // Sincronizar el mapa en vivo hacia la cita deslizada
+                        // Sincronizar el mapa en vivo hacia la reserva deslizada
                         _mapController?.animateCamera(
                           CameraUpdate.newLatLng(item.latLng),
                         );
@@ -1259,37 +1209,27 @@ class DiscoverPageState extends State<DiscoverPage> {
 
 
   Set<Marker> get _combinedMarkers {
-    final markers = Set<Marker>.from(_markers);
-    if (_blueDotIcon != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('my_current_location_dot'),
-          position: _currentPosition,
-          icon: _blueDotIcon!,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          zIndex: 999.0,
-          infoWindow: const InfoWindow(
-            title: 'Tu ubicación actual',
-            snippet: 'Aquí te encuentras ahora mismo',
-          ),
-        ),
-      );
-    }
-    return markers;
+    return Set<Marker>.from(_markers);
   }
 
   Set<Circle> get _mapCircles {
-    return {
-      Circle(
-        circleId: const CircleId('current_location_accuracy_halo'),
-        center: _currentPosition,
-        radius: 35,
-        fillColor: const Color(0x181A73E8),
-        strokeColor: const Color(0x441A73E8),
-        strokeWidth: 1,
-      ),
-    };
+    final Set<Circle> circles = {};
+    for (String zone in _preferredZones) {
+      if (ZoneData.zoneCircles.containsKey(zone)) {
+        final data = ZoneData.zoneCircles[zone]!;
+        circles.add(
+          Circle(
+            circleId: CircleId(zone),
+            center: data['center'],
+            radius: data['radius'],
+            fillColor: AppColors.primary.withOpacity(0.15),
+            strokeColor: AppColors.primary,
+            strokeWidth: 2,
+          ),
+        );
+      }
+    }
+    return circles;
   }
 
   static const String _cleanMapStyle = '''
@@ -1318,13 +1258,33 @@ class DiscoverPageState extends State<DiscoverPage> {
   ]
   ''';
 
+  Set<Polygon> _buildPolygons() {
+    final Set<Polygon> polygons = {};
+    for (var entry in ZoneData.polygons.entries) {
+      final zoneName = entry.key;
+      if (_preferredZones.contains(zoneName)) {
+        polygons.add(
+          Polygon(
+            polygonId: PolygonId(zoneName),
+            points: entry.value,
+            fillColor: AppColors.primary.withOpacity(0.15),
+            strokeColor: AppColors.primary.withOpacity(0.5),
+            strokeWidth: 2,
+            consumeTapEvents: false, // Make sure they don't block marker taps
+          ),
+        );
+      }
+    }
+    return polygons;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Vista 1: Mapa de Google con Citas (Estilo limpio sin POIs externos)
+          // Vista 1: Mapa de Google con Reservas (Estilo limpio sin POIs externos)
           if (!_showPeopleDiscovery) ...[
             GoogleMap(
               initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
@@ -1338,12 +1298,13 @@ class DiscoverPageState extends State<DiscoverPage> {
               style: _cleanMapStyle,
               markers: _combinedMarkers,
               circles: _mapCircles,
+              polygons: _buildPolygons(),
               onMapCreated: (GoogleMapController controller) {
                 _mapController = controller;
               },
             ),
             
-            // Badge indicador de citas activas (Toca para abrir el carrusel de citas)
+            // Badge indicador de reservas activas (Toca para abrir el carrusel de reservas)
             Positioned(
               top: 106,
               left: 20,
@@ -1418,6 +1379,108 @@ class DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
               ),
+            
+            // Carrusel Inferior de Reservas
+            if (_reservationsList.isNotEmpty)
+              Positioned(
+                bottom: 80,
+                left: 0,
+                right: 0,
+                height: 110,
+                child: ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(context).copyWith(
+                    dragDevices: {
+                      PointerDeviceKind.touch,
+                      PointerDeviceKind.mouse,
+                    },
+                  ),
+                  child: PageView.builder(
+                    controller: PageController(viewportFraction: 0.85),
+                  itemCount: _reservationsList.length,
+                  onPageChanged: (index) {
+                    final res = _reservationsList[index];
+                    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(res.latLng, 15.0));
+                  },
+                  itemBuilder: (context, index) {
+                    final res = _reservationsList[index];
+                    return GestureDetector(
+                      onTap: () => _openReservationCarousel(initialDocId: res.id),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                              child: SizedBox(
+                                width: 90,
+                                height: 110,
+                                child: Image.network(
+                                  res.restaurantPhoto,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.grey[200],
+                                    child: const Icon(Icons.restaurant, color: Colors.grey),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      res.placeName,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      res.formattedDate,
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      maxLines: 1,
+                                    ),
+                                    const Spacer(),
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 10,
+                                          backgroundImage: res.hostPhoto.isNotEmpty ? NetworkImage(res.hostPhoto) : null,
+                                          backgroundColor: Colors.grey[300],
+                                          child: res.hostPhoto.isEmpty ? const Icon(Icons.person, size: 12, color: Colors.white) : null,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            res.hostName,
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              ),
           ] else ...[
             // Vista 2: Descubrir Personas Estilo Tinder
             Positioned.fill(
@@ -1428,7 +1491,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             ),
           ],
 
-          // Selector superior flotante ("Citas en Mapa" / "Descubrir Personas")
+          // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
           Positioned(
             top: 48,
             left: 20,

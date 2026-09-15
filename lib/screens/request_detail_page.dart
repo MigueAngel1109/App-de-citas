@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
@@ -306,7 +306,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
                 const SizedBox(height: 10),
 
-                // Botón Seguir Viendo Citas
+                // Botón Seguir Viendo Reservas
                 TextButton(
                   onPressed: () {
                     Navigator.pop(dialogContext);
@@ -367,7 +367,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                     _buildStatusBanner(status),
                     const SizedBox(height: 16),
 
-                    // Tarjeta de la Cita
+                    // Tarjeta de la Reserva
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(18),
@@ -573,7 +573,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                             ),
                           ),
                           const SizedBox(width: 14),
-                          // Botón Aceptar Cita
+                          // Botón Aceptar Reserva
                           Expanded(
                             flex: 2,
                             child: SizedBox(

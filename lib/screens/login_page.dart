@@ -103,7 +103,7 @@ class _LoginPageState extends State<LoginPage> {
       await _manejarNavegacion(userCredential.user!);
     } on FirebaseAuthException catch (e) {
       setState(() => estaCargando = false);
-      String mensaje = 'Error al crear la cuenta';
+      String mensaje = 'Error al crear la cuenta: ${e.code}\n${e.message}';
       if (e.code == 'weak-password') {
         mensaje = 'La contraseña es muy débil';
       } else if (e.code == 'email-already-in-use') {
@@ -114,7 +114,7 @@ class _LoginPageState extends State<LoginPage> {
       _mostrarError(mensaje);
     } catch (e) {
       setState(() => estaCargando = false);
-      _mostrarError('Ocurrió un error inesperado');
+      _mostrarError('Ocurrió un error inesperado: $e');
     }
   }
 

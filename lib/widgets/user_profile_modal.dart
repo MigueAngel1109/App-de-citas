@@ -288,16 +288,14 @@ class UserProfileModal extends StatelessWidget {
           _buildCard(Text(bio, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.4))),
         ],
 
-        // Trabajo y Escuela
-        if (work.isNotEmpty || school.isNotEmpty) ...[
+        // Trabajo
+        if (work.isNotEmpty) ...[
           const SizedBox(height: 18),
           _buildSectionTitle('Ocupación'),
           _buildCard(
             Column(
               children: [
                 if (work.isNotEmpty) _buildRow(Icons.work_outline, work),
-                if (work.isNotEmpty && school.isNotEmpty) const Divider(height: 14),
-                if (school.isNotEmpty) _buildRow(Icons.school_outlined, school),
               ],
             ),
           ),
@@ -307,18 +305,20 @@ class UserProfileModal extends StatelessWidget {
         if (interests.isNotEmpty) ...[
           const SizedBox(height: 18),
           _buildSectionTitle('Intereses'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: interests.map((tag) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.inputBorder),
-              ),
-              child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 12)),
-            )).toList(),
+          _buildCard(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: interests.map((tag) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.inputBorder),
+                ),
+                child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 12)),
+              )).toList(),
+            ),
           ),
         ],
 

@@ -187,9 +187,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   Future<void> _useCurrentLocation() async {
     setState(() => _isFetchingPlace = true);
     try {
-      Position position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 5));
       setState(() {
-        _selectedLocation = GeoPoint(position.latitude, position.longitude);
+        _selectedLocation = const GeoPoint(4.6097, -74.0817); // Bogota por defecto
         if (_placeController.text.trim().isEmpty) {
           _placeController.text = 'Mi ubicación actual (Bogotá)';
         }
@@ -262,15 +261,9 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       return;
     }
     
-    // Si aún no se fijaron coordenadas, intentar resolverlas automáticamente
+    // Si aún no se fijaron coordenadas, usar ubicación por defecto
     if (_selectedLocation == null) {
-      setState(() => _isPublishing = true);
-      try {
-        final pos = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 3));
-        _selectedLocation = GeoPoint(pos.latitude, pos.longitude);
-      } catch (_) {
-        _selectedLocation = const GeoPoint(4.6097, -74.0817);
-      }
+      _selectedLocation = const GeoPoint(4.6097, -74.0817);
     }
 
     final dateTime = DateTime(
@@ -348,7 +341,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text('Publicar Reserva', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        titleSpacing: 0,
       ),
       body: Stack(
         children: [

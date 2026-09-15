@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
@@ -82,9 +82,9 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
     if (currentUser == null) return;
 
     final senderId = data['senderId']?.toString() ?? '';
-    final senderName = data['senderName']?.toString() ?? 'Tu Cita';
+    final senderName = data['senderName']?.toString() ?? 'Tu Reserva';
     final senderPhoto = data['senderPhoto']?.toString() ?? '';
-    final placeName = data['placeName']?.toString() ?? 'Cita Romántica';
+    final placeName = data['placeName']?.toString() ?? 'Reserva Romántica';
     final formattedTime = _formatDateTime(data['dateTime']);
 
     try {
@@ -111,13 +111,13 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
         },
         'status': 'matched',
         'createdAt': FieldValue.serverTimestamp(),
-        'lastMessage': '¡Cita aceptada en $placeName! 🎉 Empiecen a coordinar',
+        'lastMessage': '¡Reserva aceptada en $placeName! 🎉 Empiecen a coordinar',
         'lastMessageTime': FieldValue.serverTimestamp(),
       });
 
       if (!context.mounted) return;
 
-      // 3. Mostrar modal de celebración de Cita Confirmada
+      // 3. Mostrar modal de celebración de Reserva Confirmada
       showDialog(
         context: context,
         builder: (dialogCtx) => Dialog(
@@ -137,7 +137,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  '¡CITA ACEPTADA! 🎉',
+                  '¡RESERVA ACEPTADA! 🎉',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 22,
@@ -173,7 +173,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                     },
                     icon: const Icon(Icons.chat_bubble_rounded, color: Colors.white, size: 18),
                     label: const Text(
-                      'Ir al Chat de la Cita',
+                      'Ir al Chat de la Reserva',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -207,7 +207,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('¿Rechazar invitación?'),
-        content: const Text('Esta acción le informará a la persona que no podrás asistir a la cita.'),
+        content: const Text('Esta acción le informará a la persona que no podrás asistir a la reserva.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -373,7 +373,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
     final senderName = data['senderName']?.toString() ?? 'Alguien';
     final senderPhoto = data['senderPhoto']?.toString() ?? '';
     final placeName = data['placeName']?.toString() ?? 'Lugar por definir';
-    final planType = data['planType']?.toString() ?? 'Cita';
+    final planType = data['planType']?.toString() ?? 'Reserva';
     final paymentType = data['paymentType']?.toString() ?? 'Yo invito';
     final message = data['message']?.toString() ?? '';
     final status = data['status']?.toString() ?? 'pending';
@@ -388,7 +388,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
       case 'accepted':
         statusBgColor = Colors.green.withOpacity(0.12);
         statusTextColor = Colors.green.shade800;
-        statusLabel = '¡Cita Aceptada!';
+        statusLabel = '¡Reserva Aceptada!';
         statusIcon = Icons.check_circle_outline;
         break;
       case 'rejected':
@@ -451,7 +451,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                     ),
                     const SizedBox(height: 2),
                     const Text(
-                      'Te invitó a una cita desde Descubrir',
+                      'Te invitó a una reserva desde Descubrir',
                       style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
                   ],
@@ -480,7 +480,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
 
           const SizedBox(height: 14),
 
-          // 2. Tarjeta con detalles de la Cita propuesta
+          // 2. Tarjeta con detalles de la Reserva propuesta
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(14),
@@ -597,7 +597,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                   child: ElevatedButton.icon(
                     onPressed: () => _acceptInvitation(context, docId, data),
                     icon: const Icon(Icons.favorite, color: Colors.white, size: 16),
-                    label: const Text('Aceptar Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                    label: const Text('Aceptar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.pinkAccent,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -626,7 +626,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                   );
                 },
                 icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 17),
-                label: const Text('Ir al Chat de la Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text('Ir al Chat de la Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -695,7 +695,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
     final receiverName = data['receiverName']?.toString() ?? 'Usuario';
     final receiverPhoto = data['receiverPhoto']?.toString() ?? '';
     final placeName = data['placeName']?.toString() ?? 'Lugar';
-    final planType = data['planType']?.toString() ?? 'Cita';
+    final planType = data['planType']?.toString() ?? 'Reserva';
     final paymentType = data['paymentType']?.toString() ?? 'Yo invito';
     final message = data['message']?.toString() ?? '';
     final status = data['status']?.toString() ?? 'pending';
@@ -845,7 +845,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                   );
                 },
                 icon: const Icon(Icons.chat_bubble_outline, color: Colors.white, size: 16),
-                label: const Text('Ir al Chat con tu Cita', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text('Ir al Chat con tu Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 10),
@@ -903,7 +903,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
             ),
             const SizedBox(height: 8),
             const Text(
-              'Cada vez que una persona le dé al corazón de "Me gusta" a tu perfil en Descubrir Personas para invitarte a una cita, su invitación llegará aquí para que decidas si la aceptas 🎉',
+              'Cada vez que una persona le dé al corazón de "Me gusta" a tu perfil en Descubrir Personas para invitarte a una reserva, su invitación llegará aquí para que decidas si la aceptas 🎉',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
             ),
@@ -936,7 +936,7 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
             ),
             const SizedBox(height: 8),
             const Text(
-              'Ve al módulo de Descubrir Personas, dale al corazón de Me Gusta a quien llame tu atención y configúrale una invitación a una cita personalizada 💕',
+              'Ve al módulo de Descubrir Personas, dale al corazón de Me Gusta a quien llame tu atención y configúrale una invitación a una reserva personalizada 💕',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
             ),

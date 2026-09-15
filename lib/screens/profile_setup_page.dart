@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:video_player/video_player.dart';
 import '../utils/app_colors.dart';
 import 'home_page.dart';
+import '../widgets/zone_selection_map.dart';
 
 class ProfileSetupPage extends StatefulWidget {
   const ProfileSetupPage({super.key});
@@ -56,8 +57,17 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   bool _isLocating = false;
 
   // -------------------------------------------------------------
-  // 2. INTENCIÓN DE RELACIÓN
+  // 2. INTENCIÓN DE RELACIÓN Y ZONAS
   // -------------------------------------------------------------
+  final Set<String> _preferredZones = {};
+  final List<String> _zoneOptions = [
+    'Usaquén', 'Chapinero', 'Santa Fe', 'San Cristóbal', 'Usme',
+    'Tunjuelito', 'Bosa', 'Kennedy', 'Fontibón', 'Engativá',
+    'Suba', 'Barrios Unidos', 'Teusaquillo', 'Los Mártires',
+    'Antonio Nariño', 'Puente Aranda', 'La Candelaria',
+    'Rafael Uribe Uribe', 'Ciudad Bolívar', 'Sumapaz'
+  ];
+
   String? _relationshipGoal;
   final List<Map<String, dynamic>> _relationshipGoalOptions = [
     {'title': 'Relación a largo plazo', 'desc': 'Buscando algo formal y duradero', 'icon': Icons.favorite},
@@ -201,9 +211,13 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           if (data['location'] != null && data['location'] is GeoPoint) {
             _userLocation = data['location'] as GeoPoint;
           }
-          // Objetivo
+          // Objetivo y zonas
           if (data['relationshipGoal'] != null) {
             _relationshipGoal = data['relationshipGoal'].toString();
+          }
+          if (data['preferredZones'] != null && data['preferredZones'] is List) {
+            _preferredZones.clear();
+            _preferredZones.addAll((data['preferredZones'] as List).map((e) => e.toString()));
           }
           // Estilo de vida
           final lifestyle = data['lifestyle'] as Map<String, dynamic>? ?? {};
@@ -264,54 +278,14 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   // -------------------------------------------------------------
-  // OBTENER UBICACIÓN OBLIGATORIA
+  // OBTENER UBICACIÓN OBLIGATORIA (Simulada para omitir permiso)
   // -------------------------------------------------------------
   Future<bool> _requestInitialLocation() async {
-    setState(() => _isLocating = true);
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => false,
-      );
-      if (!serviceEnabled) {
-        if (mounted) setState(() => _isLocating = false);
-        return false;
-      }
-      LocationPermission permission = await Geolocator.checkPermission().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => LocationPermission.denied,
-      );
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => LocationPermission.denied,
-        );
-        if (permission == LocationPermission.denied) {
-          if (mounted) setState(() => _isLocating = false);
-          return false;
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) setState(() => _isLocating = false);
-        return false;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 4),
-      );
-      if (mounted) {
-        setState(() {
-          _userLocation = GeoPoint(position.latitude, position.longitude);
-          _isLocating = false;
-        });
-      }
-      return true;
-    } catch (e) {
-      debugPrint('Aviso geolocator: $e');
-      if (mounted) setState(() => _isLocating = false);
-      return false;
-    }
+    setState(() {
+      // Bogotá por defecto
+      _userLocation = const GeoPoint(4.6097, -74.0817);
+    });
+    return true;
   }
 
   // -------------------------------------------------------------
@@ -362,11 +336,15 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         _showError('Por favor dinos qué buscas en la app');
         return;
       }
+      if (_preferredZones.isEmpty) {
+        _showError('Selecciona al menos una zona de preferencia para tus reservas');
+        return;
+      }
     }
 
     // Paso 3: Fotos y Ubicación
     if (_currentPage == 3) {
-      final uploadedCount = _photos.where((p) => p != null).length;
+      final uploadedCount = List.generate(6, (i) => _photos[i] != null || (_existingPhotoUrls[i] != null && _existingPhotoUrls[i]!.isNotEmpty)).where((b) => b).length;
       if (uploadedCount < 2) {
         _showError('Es obligatorio subir al menos 2 fotos para activar tu cuenta');
         return;
@@ -494,8 +472,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'isProfileComplete': true,
         'createdAt': FieldValue.serverTimestamp(),
 
-        // Intención de relación
+        // Intención de relación y zonas
         'relationshipGoal': _relationshipGoal,
+        'preferredZones': _preferredZones.toList(),
 
         // Estilo de vida y hábitos
         'lifestyle': {
@@ -533,7 +512,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         SetOptions(merge: true),
       );
 
-      // Actualizar foto y nombre en todas las citas publicadas activas de este usuario
+      // Actualizar foto y nombre en todas las reservas publicadas activas de este usuario
       try {
         final myReservations = await FirebaseFirestore.instance
             .collection('reservations')
@@ -911,6 +890,85 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
             );
           }),
+
+          const SizedBox(height: 32),
+          const Text('¿En qué zonas prefieres ver reservas? *', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 8),
+          const Text('Selecciona las áreas en el mapa interactivo.', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          const SizedBox(height: 16),
+          
+          InkWell(
+            onTap: () async {
+              final result = await Navigator.push<Set<String>>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ZoneSelectionMap(
+                    initialSelectedZones: _preferredZones,
+                  ),
+                ),
+              );
+              if (result != null) {
+                setState(() {
+                  _preferredZones.clear();
+                  _preferredZones.addAll(result);
+                });
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.inputBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.map_outlined, color: AppColors.primary, size: 28),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Abrir mapa de zonas',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _preferredZones.isNotEmpty
+                              ? '${_preferredZones.length} zonas seleccionadas'
+                              : 'Toca para seleccionar',
+                          style: TextStyle(
+                            fontSize: 12, 
+                            color: _preferredZones.isNotEmpty ? Colors.green : AppColors.textSecondary,
+                            fontWeight: _preferredZones.isNotEmpty ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, color: AppColors.textLight, size: 16),
+                ],
+              ),
+            ),
+          ),
+          
+          if (_preferredZones.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 16.0),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _preferredZones.map((zone) {
+                  return Chip(
+                    label: Text(zone, style: const TextStyle(fontSize: 12)),
+                    backgroundColor: AppColors.primary.withOpacity(0.1),
+                    side: BorderSide.none,
+                  );
+                }).toList(),
+              ),
+            ),
+          const SizedBox(height: 12),
         ],
       ),
     );
@@ -1034,52 +1092,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             ),
           ),
 
-          const SizedBox(height: 32),
-          const Text('Ubicación obligatoria *', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _userLocation != null ? Colors.green : AppColors.inputBorder),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  _userLocation != null ? Icons.location_on : Icons.location_off_outlined,
-                  color: _userLocation != null ? Colors.green : AppColors.icon,
-                  size: 28,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _userLocation != null ? 'Ubicación concedida' : 'Ubicación no detectada',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _userLocation != null
-                            ? 'Lat: ${_userLocation!.latitude.toStringAsFixed(3)}, Lng: ${_userLocation!.longitude.toStringAsFixed(3)}'
-                            : 'Requerida para encontrar reservas y perfiles cercanos',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_isLocating)
-                  const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-                else if (_userLocation == null)
-                  TextButton(
-                    onPressed: _requestInitialLocation,
-                    child: const Text('Activar', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
-                  ),
-              ],
-            ),
-          ),
+
         ],
       ),
     );
@@ -1160,7 +1173,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           const SizedBox(height: 24),
 
           _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
-          _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
           _buildChipSelector('💖 Lenguaje del Amor', _loveLanguageOptions, _loveLanguage, (val) => setState(() => _loveLanguage = val)),
           _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
           _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
@@ -1233,8 +1245,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('💼 Trabajo / Empresa', _workController, 'Ej. Diseñador en Acme / Emprendedor', Icons.work_outline),
-          const SizedBox(height: 16),
-          _buildTextFieldWithIcon('🏛️ Escuela / Universidad', _schoolController, 'Ej. Universidad de los Andes', Icons.school_outlined),
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('🎵 Himno de Spotify', _spotifySongController, 'Ej. Bohemian Rhapsody - Queen', Icons.music_note),
           const SizedBox(height: 16),

@@ -229,7 +229,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                               ),
                               const SizedBox(height: 2),
                               const Text(
-                                'Personaliza los detalles de tu cita 💕',
+                                'Personaliza los detalles de tu reserva 💕',
                                 style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                               ),
                             ],
@@ -251,7 +251,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                     const Divider(color: AppColors.divider, height: 24),
 
                     // 1. Lugar o Restaurante
-                    const Text('Lugar o Restaurante para la cita *',
+                    const Text('Lugar o Restaurante para la reserva *',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
                     const SizedBox(height: 6),
                     TextField(
@@ -368,7 +368,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                     const SizedBox(height: 14),
 
                     // 4. Modalidad (Quién invita)
-                    const Text('Modalidad de la Cita',
+                    const Text('Modalidad de la Reserva',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
                     const SizedBox(height: 6),
                     Wrap(
@@ -422,7 +422,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                                 if (place.isEmpty) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text('Por favor indica el lugar o restaurante para la cita'),
+                                      content: Text('Por favor indica el lugar o restaurante para la reserva'),
                                       behavior: SnackBarBehavior.floating,
                                       backgroundColor: Colors.orange,
                                     ),
@@ -481,7 +481,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
 
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('¡Invitación a cita enviada a $candidateName! 💌 Llegará a su módulo de Invitaciones.'),
+                                      content: Text('¡Invitación a reserva enviada a $candidateName! 💌 Llegará a su módulo de Invitaciones.'),
                                       backgroundColor: AppColors.primary,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -502,7 +502,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                               )
                             : const Icon(Icons.favorite, color: Colors.white, size: 18),
                         label: Text(
-                          isSubmitting ? 'Enviando invitación...' : 'Enviar Invitación a Cita 💌',
+                          isSubmitting ? 'Enviando invitación...' : 'Enviar Invitación a Reserva 💌',
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                         style: ElevatedButton.styleFrom(
@@ -849,20 +849,42 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Imagen de fondo completa
+            // Imagen de fondo completa — tap para ver perfil completo
             if (currentPhoto.isNotEmpty)
-              Image.network(
-                currentPhoto,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: AppColors.surface,
-                  child: const Center(child: Icon(Icons.broken_image, size: 60, color: AppColors.textLight)),
+              GestureDetector(
+                onTap: isTopCard
+                    ? () {
+                        UserProfileModal.show(
+                          context,
+                          userId: candidate['id'] ?? '',
+                          name: candidate['name'] ?? 'Usuario',
+                        );
+                      }
+                    : null,
+                child: Image.network(
+                  currentPhoto,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: AppColors.surface,
+                    child: const Center(child: Icon(Icons.broken_image, size: 60, color: AppColors.textLight)),
+                  ),
                 ),
               )
             else
-              Container(
-                color: const Color(0xFF2C2C2C),
-                child: const Center(child: Icon(Icons.person, size: 90, color: Colors.white54)),
+              GestureDetector(
+                onTap: isTopCard
+                    ? () {
+                        UserProfileModal.show(
+                          context,
+                          userId: candidate['id'] ?? '',
+                          name: candidate['name'] ?? 'Usuario',
+                        );
+                      }
+                    : null,
+                child: Container(
+                  color: const Color(0xFF2C2C2C),
+                  child: const Center(child: Icon(Icons.person, size: 90, color: Colors.white54)),
+                ),
               ),
 
             // Sombra degradada para texto legible
@@ -951,7 +973,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                       color: Colors.black.withOpacity(0.2),
                     ),
                     child: const Text(
-                      'LIKE 💚',
+                      'INVITAR 💌',
                       style: TextStyle(color: Colors.greenAccent, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: 1.5),
                     ),
                   ),
@@ -972,7 +994,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
                       color: Colors.black.withOpacity(0.2),
                     ),
                     child: const Text(
-                      'NOPE ❌',
+                      'NO INVITAR ❌',
                       style: TextStyle(color: Colors.redAccent, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: 1.5),
                     ),
                   ),
@@ -1080,43 +1102,27 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
 
   Widget _buildActionButtons() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 36),
+      padding: const EdgeInsets.symmetric(horizontal: 48),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          // Botón Pasar (NOPE)
+          // Botón No Invitar
           _buildCircleButton(
             icon: Icons.close,
             color: Colors.redAccent,
-            size: 58,
-            iconSize: 28,
+            size: 68,
+            iconSize: 30,
+            label: 'No invitar',
             onTap: _swipeLeft,
           ),
 
-          // Botón Info Perfil
+          // Botón Invitar a Reserva
           _buildCircleButton(
-            icon: Icons.account_circle,
+            icon: Icons.calendar_month_rounded,
             color: AppColors.primary,
-            size: 48,
-            iconSize: 24,
-            onTap: () {
-              if (_currentIndex < _candidates.length) {
-                final c = _candidates[_currentIndex];
-                UserProfileModal.show(
-                  context,
-                  userId: c['id'] ?? '',
-                  name: c['name'],
-                );
-              }
-            },
-          ),
-
-          // Botón Me Gusta / Invitar a Cita (LIKE)
-          _buildCircleButton(
-            icon: Icons.favorite,
-            color: Colors.pinkAccent,
-            size: 58,
-            iconSize: 28,
+            size: 68,
+            iconSize: 30,
+            label: 'Invitar',
             onTap: _swipeRight,
           ),
         ],
@@ -1130,25 +1136,42 @@ class _TinderSwipeViewState extends State<TinderSwipeView> with SingleTickerProv
     required double size,
     required double iconSize,
     required VoidCallback onTap,
+    String? label,
   }) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.18),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: IconButton(
+            icon: Icon(icon, color: color, size: iconSize),
+            onPressed: onTap,
+          ),
+        ),
+        if (label != null) ...[  
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: color, size: iconSize),
-        onPressed: onTap,
-      ),
+      ],
     );
   }
 
