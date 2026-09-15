@@ -26,5 +26,5 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FLTGoogleSignInPlugin.register(with: registry.registrar(forPlugin: "FLTGoogleSignInPlugin"))
   SignInWithApplePlugin.register(with: registry.registrar(forPlugin: "SignInWithApplePlugin"))
   UrlLauncherPlugin.register(with: registry.registrar(forPlugin: "UrlLauncherPlugin"))
-  VideoPlayerPlugin.register(with: registry.registrar(forPlugin: "VideoPlayerPlugin"))
+  FVPVideoPlayerPlugin.register(with: registry.registrar(forPlugin: "FVPVideoPlayerPlugin"))
 }
