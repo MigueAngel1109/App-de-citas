@@ -1,8 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
-import '../widgets/user_profile_modal.dart';
 import 'chat_detail_page.dart';
 
 class RequestDetailPage extends StatefulWidget {
@@ -21,8 +21,59 @@ class RequestDetailPage extends StatefulWidget {
 
 class _RequestDetailPageState extends State<RequestDetailPage> {
   bool _isProcessing = false;
+  Map<String, dynamic>? _parentReservationData;
 
-  String _formatDateTime(dynamic dt) {
+  @override
+  void initState() {
+    super.initState();
+    _fetchParentReservation();
+  }
+
+  Future<void> _fetchParentReservation() async {
+    final resId = widget.initialData['reservationId']?.toString();
+    if (resId != null && resId.isNotEmpty) {
+      try {
+        final doc = await FirebaseFirestore.instance.collection('reservations').doc(resId).get();
+        if (doc.exists && doc.data() != null && mounted) {
+          setState(() {
+            _parentReservationData = doc.data();
+          });
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error obteniendo reserva madre: $e');
+      }
+    }
+  }
+
+  String _formatFullDate(dynamic dt) {
+    if (dt == null) return 'Fecha no especificada';
+    DateTime date;
+    if (dt is Timestamp) {
+      date = dt.toDate();
+    } else if (dt is DateTime) {
+      date = dt;
+    } else {
+      return dt.toString();
+    }
+
+    final days = [
+      'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
+    ];
+    final months = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    final dayName = days[date.weekday - 1];
+    final dayNum = date.day;
+    final monthName = months[date.month - 1];
+    final year = date.year;
+
+    return '$dayName, $dayNum de $monthName de $year';
+  }
+
+  String _formatTime(dynamic dt) {
     if (dt == null) return '';
     DateTime date;
     if (dt is Timestamp) {
@@ -33,17 +84,53 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       return dt.toString();
     }
 
-    final months = [
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
-    ];
-    final day = date.day;
-    final month = months[date.month - 1];
     final hour = date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final ampm = date.hour >= 12 ? 'PM' : 'AM';
 
-    return '$day $month • $hour:$minute $ampm';
+    return '$hour:$minute $ampm';
+  }
+
+  Future<void> _openInMaps(String placeName, dynamic location) async {
+    Uri url;
+    if (location is GeoPoint) {
+      url = Uri.parse('https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}');
+    } else {
+      url = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(placeName)}');
+    }
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo abrir el mapa')),
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _openExternalLink(String linkUrl) async {
+    if (linkUrl.isEmpty) return;
+    String formattedUrl = linkUrl;
+    if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+      formattedUrl = 'https://$formattedUrl';
+    }
+    final uri = Uri.tryParse(formattedUrl);
+    if (uri != null) {
+      try {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No se pudo abrir el enlace')),
+            );
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> _updateStatus(String newStatus, Map<String, dynamic> currentData) async {
@@ -57,41 +144,28 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       final placeName = currentData['placeName'] ?? 'la reserva';
       final reservationId = currentData['reservationId'] ?? '';
 
-      // Obtener foto y nombre del anfitrión
+      // Obtener datos del anfitrión
       String hostName = 'Anfitrión';
       String hostPhoto = '';
       try {
         final hostDoc = await FirebaseFirestore.instance.collection('users').doc(currentUserId).get();
-        if (hostDoc.exists) {
-          final hData = hostDoc.data();
-          if (hData != null) {
-            hostName = hData['name'] ?? 'Anfitrión';
-            final pList = (hData['photoUrls'] as List?) ?? (hData['photos'] as List?);
-            if (pList != null && pList.isNotEmpty) {
-              hostPhoto = pList[0]?.toString() ?? '';
-            }
+        if (hostDoc.exists && hostDoc.data() != null) {
+          final hData = hostDoc.data()!;
+          hostName = hData['name'] ?? 'Anfitrión';
+          final pList = (hData['photoUrls'] as List?) ?? (hData['photos'] as List?);
+          if (pList != null && pList.isNotEmpty) {
+            hostPhoto = pList[0]?.toString() ?? '';
           }
         }
       } catch (_) {}
 
-      final now = Timestamp.now();
-      final interactionEntry = {
-        'type': newStatus == 'accepted' ? 'status_accepted' : 'status_rejected',
-        'title': newStatus == 'accepted' ? '¡Solicitud Aceptada!' : 'Solicitud Denegada',
-        'description': newStatus == 'accepted'
-            ? 'Aceptaste la solicitud de $requesterName. ¡Hay Match para $placeName!'
-            : 'Rechazaste la solicitud de $requesterName.',
-        'timestamp': now,
-      };
-
-      // 1. Actualizar solicitud
+      // Actualizar estado de la solicitud
       await FirebaseFirestore.instance.collection('reservation_requests').doc(widget.requestId).update({
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
-        'interactionHistory': FieldValue.arrayUnion([interactionEntry]),
       });
 
-      // 2. Si se acepta, crear Match en Firestore
+      // Si se acepta la solicitud, crear Match en Firestore
       if (newStatus == 'accepted') {
         final matchRef = FirebaseFirestore.instance.collection('matches').doc();
         await matchRef.set({
@@ -116,6 +190,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
         if (mounted) {
           _showMatchDialog(
+            matchId: matchRef.id,
+            requesterId: requesterId,
             requesterName: requesterName,
             requesterPhoto: requesterPhoto,
             hostPhoto: hostPhoto,
@@ -149,6 +225,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
   }
 
   void _showMatchDialog({
+    required String matchId,
+    required String requesterId,
     required String requesterName,
     required String requesterPhoto,
     required String hostPhoto,
@@ -177,7 +255,6 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Icono / Título celebración
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -208,16 +285,14 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                 ),
-
                 const SizedBox(height: 24),
 
-                // Fotos de ambos perfiles entrelazadas
+                // Fotos de ambos perfiles
                 SizedBox(
                   height: 90,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Foto Anfitrión (Izquierda)
                       Positioned(
                         left: 55,
                         child: Container(
@@ -231,12 +306,13 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                           child: CircleAvatar(
                             radius: 38,
                             backgroundColor: AppColors.surface,
-                            backgroundImage: hostPhoto.isNotEmpty ? NetworkImage(hostPhoto) : null,
+                            backgroundImage: (hostPhoto.isNotEmpty && (hostPhoto.startsWith('http://') || hostPhoto.startsWith('https://')))
+                                ? NetworkImage(hostPhoto)
+                                : null,
                             child: hostPhoto.isEmpty ? const Icon(Icons.person, size: 38, color: AppColors.textLight) : null,
                           ),
                         ),
                       ),
-                      // Foto Solicitante (Derecha)
                       Positioned(
                         right: 55,
                         child: Container(
@@ -250,12 +326,13 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                           child: CircleAvatar(
                             radius: 38,
                             backgroundColor: AppColors.surface,
-                            backgroundImage: requesterPhoto.isNotEmpty ? NetworkImage(requesterPhoto) : null,
+                            backgroundImage: (requesterPhoto.isNotEmpty && (requesterPhoto.startsWith('http://') || requesterPhoto.startsWith('https://')))
+                                ? NetworkImage(requesterPhoto)
+                                : null,
                             child: requesterPhoto.isEmpty ? const Icon(Icons.person, size: 38, color: AppColors.textLight) : null,
                           ),
                         ),
                       ),
-                      // Corazón central pequeño
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
@@ -277,15 +354,21 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                   height: 50,
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      Navigator.pop(dialogContext); // Cerrar diálogo
+                      Navigator.pop(dialogContext);
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => ChatDetailPage(
+                            matchId: matchId,
+                            otherUserId: requesterId,
+                            otherUserName: requesterName,
+                            otherUserPhoto: requesterPhoto,
                             lugar: {
                               'nombre': placeName,
                               'hora': 'Confirmada',
                               'icono': '🍷',
+                              'usuario': requesterName,
+                              'avatar': requesterPhoto,
                             },
                           ),
                         ),
@@ -306,11 +389,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
                 const SizedBox(height: 10),
 
-                // Botón Seguir Viendo Reservas
                 TextButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                  },
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: const Text('Volver a Solicitudes', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                 ),
               ],
@@ -321,21 +401,103 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     );
   }
 
+  void _confirmDeleteRequest(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('¿Eliminar solicitud?'),
+        content: const Text('¿Estás seguro de que deseas eliminar esta solicitud? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await FirebaseFirestore.instance.collection('reservation_requests').doc(widget.requestId).delete();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Solicitud eliminada correctamente'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error al eliminar: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getPlanIcon(String plan) {
+    switch (plan.toLowerCase()) {
+      case 'comida':
+      case 'cena':
+      case 'almuerzo':
+        return Icons.restaurant;
+      case 'café':
+      case 'cafe':
+        return Icons.coffee_rounded;
+      case 'tragos':
+      case 'bar':
+      case 'copas':
+        return Icons.wine_bar_rounded;
+      case 'cine':
+      case 'película':
+        return Icons.movie_rounded;
+      case 'paseo':
+      case 'caminar':
+        return Icons.park_rounded;
+      default:
+        return Icons.local_activity_rounded;
+    }
+  }
+
+  IconData _getPaymentIcon(String payment) {
+    if (payment.contains('Yo invito')) return Icons.card_giftcard_rounded;
+    if (payment.contains('50')) return Icons.pie_chart_outline_rounded;
+    return Icons.credit_card_rounded;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        backgroundColor: AppColors.white,
+        elevation: 0.5,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Detalle de Solicitud',
+          'Detalles de la Reserva',
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            tooltip: 'Eliminar solicitud',
+            onPressed: () => _confirmDeleteRequest(context),
+          ),
+        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance.collection('reservation_requests').doc(widget.requestId).snapshots(),
@@ -344,30 +506,156 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
               ? snapshot.data!.data() as Map<String, dynamic>
               : widget.initialData;
 
-          final placeName = data['placeName'] ?? 'Restaurante';
-          final planType = data['planType'] ?? 'Reserva';
-          final paymentType = data['paymentType'] ?? '';
-          final dateTimeStr = _formatDateTime(data['dateTime']);
+          final parent = _parentReservationData ?? {};
+
+          final placeName = (parent['placeName']?.toString().isNotEmpty == true)
+              ? parent['placeName']
+              : (data['placeName'] ?? 'Restaurante');
+          final planType = (parent['planType']?.toString().isNotEmpty == true)
+              ? parent['planType']
+              : (data['planType'] ?? 'Comida');
+          final paymentType = (parent['paymentType']?.toString().isNotEmpty == true)
+              ? parent['paymentType']
+              : (data['paymentType'] ?? 'Yo invito');
+          final dateTimeVal = parent['dateTime'] ?? data['dateTime'];
+          final detailsText = parent['details']?.toString() ?? data['details']?.toString() ?? '';
+          final linkUrl = parent['link']?.toString() ?? data['link']?.toString() ?? '';
+          final locationVal = parent['location'] ?? data['location'];
+
           final requesterName = data['requesterName'] ?? 'Usuario';
           final requesterPhoto = data['requesterPhoto'] ?? '';
           final requesterId = data['requesterUserId'] ?? '';
           final message = data['message'] ?? '';
           final status = data['status'] ?? 'pending';
 
-          final List<dynamic> rawHistory = data['interactionHistory'] as List<dynamic>? ?? [];
+          final fullDateStr = _formatFullDate(dateTimeVal);
+          final timeStr = _formatTime(dateTimeVal);
 
           return Stack(
             children: [
               SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Estado actual Badge
+                    // Banner de estado actual
                     _buildStatusBanner(status),
                     const SizedBox(height: 16),
 
-                    // Tarjeta de la Reserva
+                    // 1. TARJETA PRINCIPAL DEL LUGAR / RESTAURANTE
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: AppColors.divider),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.02),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [AppColors.primary, Color(0xFFFF758C)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Icon(Icons.restaurant_rounded, color: Colors.white, size: 28),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'LUGAR O RESTAURANTE',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.textLight,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      placeName,
+                                      style: const TextStyle(
+                                        fontSize: 21,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                        height: 1.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          const Divider(height: 1, color: AppColors.divider),
+                          const SizedBox(height: 16),
+
+                          // Botones de acción rápida: Ver en Mapa y Ver Menú
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _openInMaps(placeName, locationVal),
+                                  icon: const Icon(Icons.map_outlined, size: 18, color: AppColors.primary),
+                                  label: const Text(
+                                    'Ver en Maps',
+                                    style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppColors.primary, width: 1.2),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                ),
+                              ),
+                              if (linkUrl.isNotEmpty) ...[
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _openExternalLink(linkUrl),
+                                    icon: const Icon(Icons.link, size: 18, color: Colors.white),
+                                    label: const Text(
+                                      'Menú / Web',
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // 2. SECCIÓN: FECHA Y HORA DE LA CITA
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(18),
@@ -382,60 +670,136 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                           Row(
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(10),
+                                padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(12),
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: const Icon(Icons.restaurant, color: AppColors.primary, size: 22),
+                                child: const Icon(Icons.calendar_month_rounded, color: AppColors.primary, size: 20),
                               ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('LUGAR DE LA RESERVA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textLight, letterSpacing: 0.8)),
-                                    Text(
-                                      placeName,
-                                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                    ),
-                                  ],
-                                ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Fecha y Hora Programada',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                               ),
                             ],
                           ),
                           const SizedBox(height: 14),
-                          const Divider(height: 1, color: AppColors.divider),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              const Icon(Icons.calendar_month, size: 16, color: AppColors.textSecondary),
-                              const SizedBox(width: 6),
-                              Text(dateTimeStr, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: AppColors.inputBackground,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: AppColors.inputBorder),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        fullDateStr,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
+                                      if (timeStr.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.access_time_rounded, size: 14, color: AppColors.primary),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              timeStr,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
-                                child: Text(
-                                  paymentType.isNotEmpty ? '$planType • $paymentType' : planType,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
-                    // Tarjeta del Solicitante
-                    const Text('Persona que solicitó unirse', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    const SizedBox(height: 10),
+                    // 3. SECCIÓN: TIPO DE PLAN & ¿QUIÉN PAGA?
+                    Row(
+                      children: [
+                        // Card Tipo de Plan
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: AppColors.divider),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(_getPlanIcon(planType), size: 18, color: AppColors.primary),
+                                    const SizedBox(width: 6),
+                                    const Text('Plan', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  planType,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Card Pago
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: AppColors.divider),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(_getPaymentIcon(paymentType), size: 18, color: Colors.teal),
+                                    const SizedBox(width: 6),
+                                    const Text('Pago', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  paymentType.isNotEmpty ? paymentType : 'No especificado',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // 4. SECCIÓN: DETALLES Y NOTAS DEL PLAN / RESERVA
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(18),
@@ -445,101 +809,87 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                         border: Border.all(color: AppColors.divider),
                       ),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              CircleAvatar(
-                                radius: 30,
-                                backgroundColor: AppColors.inputBackground,
-                                backgroundImage: requesterPhoto.isNotEmpty ? NetworkImage(requesterPhoto) : null,
-                                child: requesterPhoto.isEmpty ? const Icon(Icons.person, size: 30, color: AppColors.textLight) : null,
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      requesterName,
-                                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text('Quiere acompañarte a esta reserva', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                                  ],
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
+                                child: const Icon(Icons.notes_rounded, color: Colors.blueAccent, size: 20),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Detalles y Notas de la Reserva',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                               ),
                             ],
                           ),
-
-                          // Mensaje si lo dejó
-                          if (message.isNotEmpty) ...[
-                            const SizedBox(height: 14),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppColors.background,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(Icons.format_quote, color: AppColors.textLight, size: 18),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      message,
-                                      style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: AppColors.textPrimary),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          const SizedBox(height: 16),
-
-                          // BOTÓN PARA VER PERFIL DEL SOLICITANTE
-                          SizedBox(
-                            width: double.infinity,
-                            height: 46,
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                if (requesterId.isNotEmpty) {
-                                  UserProfileModal.show(
-                                    context,
-                                    userId: requesterId,
-                                    name: requesterName,
-                                    photo: requesterPhoto,
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.account_circle_outlined, color: AppColors.primary, size: 20),
-                              label: Text(
-                                'Ver Perfil Completo de $requesterName',
-                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppColors.primary, width: 1.5),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              ),
+                          const SizedBox(height: 12),
+                          Text(
+                            detailsText.isNotEmpty
+                                ? detailsText
+                                : 'No se especificaron detalles adicionales para esta reserva.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.4,
+                              color: detailsText.isNotEmpty ? AppColors.textPrimary : AppColors.textSecondary,
+                              fontStyle: detailsText.isNotEmpty ? FontStyle.normal : FontStyle.italic,
                             ),
                           ),
                         ],
                       ),
                     ),
 
-                    const SizedBox(height: 24),
-
-                    // HISTÓRICO DE INTERACCIONES (TIMELINE)
-                    const Text('Histórico de Interacciones', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    const SizedBox(height: 12),
-                    _buildInteractionTimeline(rawHistory, data),
+                    // 5. SECCIÓN: NOTA O MENSAJE DEL SOLICITANTE (SI EXISTE)
+                    if (message.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF9FA),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.format_quote_rounded, color: AppColors.primary, size: 22),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Mensaje enviado con la solicitud:',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary.withOpacity(0.85)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Text(
+                                '"$message"',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontStyle: FontStyle.italic,
+                                  color: AppColors.textPrimary,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
 
-              // Barra inferior fija con acciones si está 'pending'
+              // Barra inferior fija con botones según estado
               if (status == 'pending')
                 Positioned(
                   left: 0,
@@ -557,7 +907,6 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                       top: false,
                       child: Row(
                         children: [
-                          // Botón Denegar
                           Expanded(
                             flex: 1,
                             child: SizedBox(
@@ -565,7 +914,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                               child: OutlinedButton(
                                 onPressed: _isProcessing ? null : () => _updateStatus('rejected', data),
                                 style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.redAccent),
+                                  side: const BorderSide(color: Colors.redAccent, width: 1.5),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
                                 ),
                                 child: const Text('Denegar', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 15)),
@@ -573,7 +922,6 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                             ),
                           ),
                           const SizedBox(width: 14),
-                          // Botón Aceptar Reserva
                           Expanded(
                             flex: 2,
                             child: SizedBox(
@@ -582,7 +930,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                                 onPressed: _isProcessing ? null : () => _updateStatus('accepted', data),
                                 icon: _isProcessing
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                    : const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                    : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
                                 label: const Text('Aceptar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primary,
@@ -621,17 +969,25 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                               context,
                               MaterialPageRoute(
                                 builder: (context) => ChatDetailPage(
+                                  otherUserId: requesterId,
+                                  otherUserName: requesterName,
+                                  otherUserPhoto: requesterPhoto,
                                   lugar: {
                                     'nombre': placeName,
                                     'hora': 'Confirmada',
                                     'icono': '🍷',
+                                    'usuario': requesterName,
+                                    'avatar': requesterPhoto,
                                   },
                                 ),
                               ),
                             );
                           },
-                          icon: const Icon(Icons.chat_bubble, color: Colors.white),
-                          label: Text('Abrir Chat con $requesterName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          icon: const Icon(Icons.chat_bubble_rounded, color: Colors.white),
+                          label: Text(
+                            'Abrir Chat con $requesterName',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
@@ -658,172 +1014,37 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       case 'accepted':
         bg = const Color(0xFFE8F5E9);
         fg = const Color(0xFF2E7D32);
-        icon = Icons.check_circle;
+        icon = Icons.check_circle_rounded;
         text = '¡Reserva Aceptada! Tienes un Match activo 🎉';
         break;
       case 'rejected':
         bg = const Color(0xFFFFEBEE);
         fg = const Color(0xFFC62828);
-        icon = Icons.cancel;
+        icon = Icons.cancel_rounded;
         text = 'Solicitud denegada';
         break;
       default:
         bg = const Color(0xFFFFF3E0);
         fg = const Color(0xFFE65100);
-        icon = Icons.hourglass_top;
+        icon = Icons.hourglass_top_rounded;
         text = 'Solicitud pendiente de tu respuesta';
     }
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          Icon(icon, color: fg, size: 20),
+          Icon(icon, color: fg, size: 22),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 13)),
+            child: Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 13.5)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildInteractionTimeline(List<dynamic> history, Map<String, dynamic> data) {
-    // Si la lista de historial está vacía, construir timeline predeterminado con los datos
-    final List<Map<String, dynamic>> items = [];
-
-    if (history.isNotEmpty) {
-      for (var item in history) {
-        if (item is Map) {
-          items.add(Map<String, dynamic>.from(item));
-        }
-      }
-    } else {
-      // Evento 1: Reserva publicada
-      if (data['createdAt'] != null) {
-        items.add({
-          'type': 'created',
-          'title': 'Reserva publicada',
-          'description': 'Publicaste esta reserva en el mapa.',
-          'timestamp': data['createdAt'],
-        });
-      }
-      // Evento 2: Solicitud recibida
-      items.add({
-        'type': 'request_sent',
-        'title': 'Solicitud enviada',
-        'description': '${data['requesterName'] ?? 'El usuario'} envió una solicitud para unirse.',
-        'timestamp': data['createdAt'] ?? Timestamp.now(),
-      });
-      // Evento 3: Estado
-      if (data['status'] == 'accepted') {
-        items.add({
-          'type': 'status_accepted',
-          'title': 'Solicitud aceptada',
-          'description': 'Aceptaste la reserva. ¡Se generó el match!',
-          'timestamp': data['updatedAt'] ?? Timestamp.now(),
-        });
-      } else if (data['status'] == 'rejected') {
-        items.add({
-          'type': 'status_rejected',
-          'title': 'Solicitud denegada',
-          'description': 'Denegaste la solicitud.',
-          'timestamp': data['updatedAt'] ?? Timestamp.now(),
-        });
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        children: List.generate(items.length, (index) {
-          final item = items[index];
-          final isLast = index == items.length - 1;
-          final timeStr = _formatDateTime(item['timestamp']);
-
-          IconData eventIcon = Icons.timeline;
-          Color eventColor = AppColors.primary;
-          if (item['type'] == 'created') {
-            eventIcon = Icons.add_location_alt;
-            eventColor = Colors.blue;
-          } else if (item['type'] == 'request_sent') {
-            eventIcon = Icons.send_rounded;
-            eventColor = Colors.orange;
-          } else if (item['type'] == 'status_accepted') {
-            eventIcon = Icons.favorite;
-            eventColor = Colors.green;
-          } else if (item['type'] == 'status_rejected') {
-            eventIcon = Icons.cancel;
-            eventColor = Colors.red;
-          }
-
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Línea y nodo
-              Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: eventColor.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(eventIcon, size: 16, color: eventColor),
-                  ),
-                  if (!isLast)
-                    Container(
-                      width: 2,
-                      height: 36,
-                      color: AppColors.divider,
-                    ),
-                ],
-              ),
-              const SizedBox(width: 14),
-              // Contenido
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            item['title'] ?? 'Evento',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                          ),
-                          if (timeStr.isNotEmpty)
-                            Text(
-                              timeStr,
-                              style: const TextStyle(fontSize: 11, color: AppColors.textLight),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        item['description'] ?? '',
-                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.3),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        }),
       ),
     );
   }

@@ -9,6 +9,50 @@ class ChatsPage extends StatelessWidget {
 
   const ChatsPage({super.key, this.isEmbedded = false});
 
+  void _confirmDeleteChat(BuildContext context, String matchId, String otherName) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('¿Eliminar chat?'),
+        content: Text('¿Estás seguro de que deseas eliminar la conversación con "$otherName"? Se borrará el match y el chat permanentemente.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await FirebaseFirestore.instance.collection('matches').doc(matchId).delete();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Chat eliminado correctamente'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error al eliminar chat: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -73,12 +117,27 @@ class ChatsPage extends StatelessWidget {
             itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
-              final users = (data['users'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+              final doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>;
+              final rawUsers = data['users'];
+              final List<String> users = (rawUsers is List)
+                  ? rawUsers.map((e) => e.toString()).toList()
+                  : [];
               final otherUserId = users.firstWhere((id) => id != currentUser.uid, orElse: () => '');
 
-              final userNames = data['userNames'] as Map<String, dynamic>? ?? {};
-              final userPhotos = data['userPhotos'] as Map<String, dynamic>? ?? {};
+              final Map<String, dynamic> userNames = {};
+              if (data['userNames'] is Map) {
+                (data['userNames'] as Map).forEach((k, v) {
+                  userNames[k.toString()] = v?.toString() ?? '';
+                });
+              }
+
+              final Map<String, dynamic> userPhotos = {};
+              if (data['userPhotos'] is Map) {
+                (data['userPhotos'] as Map).forEach((k, v) {
+                  userPhotos[k.toString()] = v?.toString() ?? '';
+                });
+              }
 
               final otherName = userNames[otherUserId] ?? 'Tu Match';
               final otherPhoto = userPhotos[otherUserId] ?? '';
@@ -92,10 +151,16 @@ class ChatsPage extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatDetailPage(
+                        matchId: doc.id,
+                        otherUserId: otherUserId,
+                        otherUserName: otherName,
+                        otherUserPhoto: otherPhoto,
                         lugar: {
                           'nombre': placeName,
                           'hora': 'Confirmada',
                           'icono': '🍷',
+                          'usuario': otherName,
+                          'avatar': otherPhoto,
                         },
                       ),
                     ),
@@ -172,6 +237,12 @@ class ChatsPage extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
+                        tooltip: 'Eliminar chat',
+                        onPressed: () => _confirmDeleteChat(context, doc.id, otherName),
                       ),
                     ],
                   ),

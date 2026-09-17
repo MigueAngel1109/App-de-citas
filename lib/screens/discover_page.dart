@@ -13,6 +13,7 @@ import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
+import '../widgets/zone_selection_map.dart';
 
 class ReservationMapItem {
   final String id;
@@ -274,6 +275,86 @@ class DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
+  bool _isReservationInPreferredZones(LatLng latLng, Map<String, dynamic> data) {
+    // Si el usuario no ha seleccionado ninguna zona, no mostrar citas fuera de zona
+    if (_preferredZones.isEmpty) return false;
+
+    // 1. Verificación geométrica exacta por polígono (Ray Casting)
+    if (ZoneData.isPointInAnyZone(latLng, _preferredZones)) {
+      return true;
+    }
+
+    // 2. Verificación secundaria por metadato 'zone' o 'zoneName' guardado en el documento
+    final docZone = (data['zone'] ?? data['zoneName'])?.toString().trim();
+    if (docZone != null && docZone.isNotEmpty) {
+      final normDocZone = ZoneData.normalizeZoneName(docZone);
+      for (final pz in _preferredZones) {
+        if (ZoneData.normalizeZoneName(pz) == normDocZone) {
+          return true;
+        }
+      }
+    }
+
+    // 3. Verificación por coincidencia con el nombre de la localidad en dirección o nombre
+    final placeName = data['placeName']?.toString() ?? '';
+    final address = data['address']?.toString() ?? '';
+    for (final pz in _preferredZones) {
+      final normPz = ZoneData.normalizeZoneName(pz);
+      if (normPz.length >= 4) {
+        if (ZoneData.normalizeZoneName(placeName).contains(normPz) ||
+            ZoneData.normalizeZoneName(address).contains(normPz)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _openZoneFilter() async {
+    final result = await Navigator.push<Set<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ZoneSelectionMap(
+          initialSelectedZones: _preferredZones,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _preferredZones.clear();
+        _preferredZones.addAll(result);
+        _markerCache.clear();
+      });
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'preferredZones': result.toList(),
+          });
+        } catch (e) {
+          debugPrint('Error actualizando zonas preferidas: $e');
+        }
+      }
+
+      if (result.isNotEmpty) {
+        final firstZone = result.first;
+        if (ZoneData.polygons.containsKey(firstZone)) {
+          final points = ZoneData.polygons[firstZone]!;
+          if (points.isNotEmpty) {
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLngZoom(points[0], 13.5),
+            );
+          }
+        }
+      }
+
+      _listenToReservations();
+    }
+  }
+
   void _listenToReservations() {
     _reservationsSub?.cancel();
     _reservationsSub = FirebaseFirestore.instance.collection('reservations').snapshots().listen((snapshot) async {
@@ -286,6 +367,13 @@ class DiscoverPageState extends State<DiscoverPage> {
           final data = doc.data();
           final latLng = _parseLocation(data['location'], data['latitude'], data['longitude']);
           if (latLng == null) continue;
+
+          // FILTRO DE ZONAS ELEGIDAS POR EL USUARIO:
+          // Solo mostrar citas que estén dentro de las zonas que el usuario haya seleccionado.
+          // Si la cita está fuera de esa zona, NO debe aparecer.
+          if (!_isReservationInPreferredZones(latLng, data)) {
+            continue;
+          }
 
           final userId = data['userId'] as String?;
           String userName = (data['userName'] != null && (data['userName'] as String).isNotEmpty)
@@ -1260,9 +1348,11 @@ class DiscoverPageState extends State<DiscoverPage> {
 
   Set<Polygon> _buildPolygons() {
     final Set<Polygon> polygons = {};
+    final normPreferred = _preferredZones.map(ZoneData.normalizeZoneName).toSet();
+
     for (var entry in ZoneData.polygons.entries) {
       final zoneName = entry.key;
-      if (_preferredZones.contains(zoneName)) {
+      if (normPreferred.contains(ZoneData.normalizeZoneName(zoneName))) {
         polygons.add(
           Polygon(
             polygonId: PolygonId(zoneName),
@@ -1280,77 +1370,136 @@ class DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final topOffset = topPadding > 0 ? topPadding : 16.0;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      primary: false,
+      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.transparent,
       body: Stack(
+        fit: StackFit.expand,
         children: [
           // Vista 1: Mapa de Google con Reservas (Estilo limpio sin POIs externos)
           if (!_showPeopleDiscovery) ...[
-            GoogleMap(
-              initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
-              myLocationEnabled: false,
-              myLocationButtonEnabled: false,
-              zoomControlsEnabled: false,
-              mapToolbarEnabled: false,
-              compassEnabled: false,
-              indoorViewEnabled: false,
-              trafficEnabled: false,
-              style: _cleanMapStyle,
-              markers: _combinedMarkers,
-              circles: _mapCircles,
-              polygons: _buildPolygons(),
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-              },
+            Positioned.fill(
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                mapToolbarEnabled: false,
+                compassEnabled: false,
+                indoorViewEnabled: false,
+                trafficEnabled: false,
+                style: _cleanMapStyle,
+                markers: _combinedMarkers,
+                circles: _mapCircles,
+                polygons: _buildPolygons(),
+                onMapCreated: (GoogleMapController controller) {
+                  _mapController = controller;
+                },
+              ),
             ),
             
-            // Badge indicador de reservas activas (Toca para abrir el carrusel de reservas)
+            // Badge indicador de reservas activas y selector de zonas
             Positioned(
-              top: 106,
-              left: 20,
-              child: GestureDetector(
-                onTap: () {
-                  if (_reservationsList.isNotEmpty) {
-                    _openReservationCarousel();
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.celebration, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${_markers.length} ${_markers.length == 1 ? "reserva activa" : "reservas activas"}',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
+              top: topOffset + 66,
+              left: 16,
+              right: 76,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    // Badge reservas
+                    GestureDetector(
+                      onTap: () {
+                        if (_reservationsList.isNotEmpty) {
+                          _openReservationCarousel();
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface.withOpacity(0.95),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.celebration, color: AppColors.primary, size: 17),
+                            const SizedBox(width: 7),
+                            Text(
+                              _preferredZones.isEmpty
+                                  ? 'Sin zonas elegidas'
+                                  : '${_markers.length} ${_markers.length == 1 ? "cita en tu zona" : "citas en tus zonas"}',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            if (_markers.isNotEmpty) ...[
+                              const SizedBox(width: 5),
+                              const Icon(Icons.touch_app_rounded, color: AppColors.primary, size: 13),
+                            ],
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.touch_app_rounded, color: AppColors.primary, size: 14),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Botón para filtrar/cambiar zonas
+                    GestureDetector(
+                      onTap: _openZoneFilter,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface.withOpacity(0.95),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.tune_rounded, color: AppColors.primary, size: 15),
+                            const SizedBox(width: 5),
+                            Text(
+                              _preferredZones.isEmpty
+                                  ? 'Elegir Zonas'
+                                  : '${_preferredZones.length} ${_preferredZones.length == 1 ? "zona" : "zonas"}',
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
 
             // Botón personalizado de ubicación superior derecho
             Positioned(
-              top: 106,
+              top: topOffset + 66,
               right: 20,
               child: FloatingActionButton(
                 heroTag: 'btnLocation',
@@ -1362,6 +1511,97 @@ class DiscoverPageState extends State<DiscoverPage> {
                 },
               ),
             ),
+
+            // Banner flotante cuando no hay zonas seleccionadas
+            if (_preferredZones.isEmpty)
+              Positioned(
+                top: topOffset + 120,
+                left: 20,
+                right: 20,
+                child: GestureDetector(
+                  onTap: _openZoneFilter,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.5), width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.add_location_alt_rounded, color: AppColors.primary, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Elige tus zonas para ver citas',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Solo aparecerán en el mapa las citas que estén dentro de las zonas que selecciones.',
+                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.2),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Mensaje informativo cuando hay zonas elegidas pero ninguna cita en ellas
+            if (_preferredZones.isNotEmpty && _reservationsList.isEmpty && !_isLoadingLocation)
+              Positioned(
+                bottom: 120,
+                left: 24,
+                right: 24,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.location_off_rounded, color: AppColors.primary, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'No hay citas activas en tus ${_preferredZones.length} ${_preferredZones.length == 1 ? "zona seleccionada" : "zonas seleccionadas"}. Puedes agregar más zonas tocando el botón de arriba.',
+                          style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             if (_isLoadingLocation)
               const Center(
@@ -1383,7 +1623,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             // Carrusel Inferior de Reservas
             if (_reservationsList.isNotEmpty)
               Positioned(
-                bottom: 80,
+                bottom: 130,
                 left: 0,
                 right: 0,
                 height: 110,
@@ -1484,7 +1724,8 @@ class DiscoverPageState extends State<DiscoverPage> {
           ] else ...[
             // Vista 2: Descubrir Personas Estilo Tinder
             Positioned.fill(
-              top: 102,
+              top: topOffset + 66,
+              bottom: 95,
               child: TinderSwipeView(
                 onSwitchToMap: () => setState(() => _showPeopleDiscovery = false),
               ),
@@ -1493,7 +1734,7 @@ class DiscoverPageState extends State<DiscoverPage> {
 
           // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
           Positioned(
-            top: 48,
+            top: topOffset + 8,
             left: 20,
             right: 20,
             child: Container(

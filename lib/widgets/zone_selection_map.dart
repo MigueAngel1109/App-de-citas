@@ -54,51 +54,32 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
     });
   }
 
-  Set<Circle> _buildCircles() {
-    final Set<Circle> circles = {};
-    for (var entry in ZoneData.zoneCircles.entries) {
+  Set<Polygon> _buildPolygons() {
+    final Set<Polygon> polygons = {};
+    for (var entry in ZoneData.polygons.entries) {
       final zoneName = entry.key;
       final isSelected = _selectedZones.contains(zoneName);
-      circles.add(
-        Circle(
-          circleId: CircleId(zoneName),
-          center: entry.value['center'],
-          radius: entry.value['radius'],
-          fillColor: isSelected
-              ? AppColors.primary.withOpacity(0.25)
-              : AppColors.primary.withOpacity(0.06),
-          strokeColor: isSelected
-              ? AppColors.primary
-              : AppColors.primary.withOpacity(0.5),
-          strokeWidth: isSelected ? 3 : 2,
-        ),
-      );
-    }
-    return circles;
-  }
 
-  // Pins visibles centrados en cada círculo para identificar y seleccionar la localidad
-  Set<Marker> _buildTapMarkers() {
-    final Set<Marker> markers = {};
-    for (var entry in ZoneData.zoneCircles.entries) {
-      final zoneName = entry.key;
-      final isSelected = _selectedZones.contains(zoneName);
-      markers.add(
-        Marker(
-          markerId: MarkerId(zoneName),
-          position: entry.value['center'],
+      final Color activeColor = const Color(0xFFE53935);
+      final Color inactiveColor = const Color(0xFF424242);
+
+      polygons.add(
+        Polygon(
+          polygonId: PolygonId(zoneName),
+          points: entry.value,
+          fillColor: isSelected
+              ? activeColor.withOpacity(0.30)
+              : inactiveColor.withOpacity(0.06),
+          strokeColor: isSelected
+              ? activeColor
+              : inactiveColor.withOpacity(0.35),
+          strokeWidth: isSelected ? 3 : 1,
           consumeTapEvents: true,
           onTap: () => _toggleZone(zoneName),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            isSelected
-                ? BitmapDescriptor.hueViolet
-                : BitmapDescriptor.hueRose,
-          ),
-          infoWindow: InfoWindow(title: zoneName),
         ),
       );
     }
-    return markers;
+    return polygons;
   }
 
   @override
@@ -133,8 +114,7 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
               zoom: 11.2,
             ),
             onMapCreated: _onMapCreated,
-            circles: _buildCircles(),
-            markers: _buildTapMarkers(),
+            polygons: _buildPolygons(),
             myLocationEnabled: false,
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,

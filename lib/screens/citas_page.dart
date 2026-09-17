@@ -5,6 +5,7 @@ import '../utils/app_colors.dart';
 import 'publish_reservation_page.dart';
 import 'request_detail_page.dart';
 import 'chats_page.dart';
+import '../widgets/user_profile_modal.dart';
 
 class ReservasPage extends StatefulWidget {
   final Function(GeoPoint?)? onPublished;
@@ -342,6 +343,53 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
     );
   }
 
+  // -------------------------------------------------------------
+  // DIÁLOGO PARA ELIMINAR SOLICITUD DE RESERVA
+  // -------------------------------------------------------------
+  void _confirmDeleteRequest(String requestId, String requesterName, String placeName) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('¿Eliminar solicitud?'),
+        content: Text('¿Estás seguro de que deseas eliminar la solicitud de "$requesterName" para "$placeName"? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await FirebaseFirestore.instance.collection('reservation_requests').doc(requestId).delete();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Solicitud eliminada correctamente'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error al eliminar solicitud: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -600,11 +648,40 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                   children: [
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: AppColors.inputBackground,
-                          backgroundImage: requesterPhoto.isNotEmpty ? NetworkImage(requesterPhoto) : null,
-                          child: requesterPhoto.isEmpty ? const Icon(Icons.person, color: AppColors.textLight) : null,
+                        GestureDetector(
+                          onTap: () {
+                            final reqId = data['requesterUserId']?.toString() ?? data['requesterId']?.toString() ?? '';
+                            if (reqId.isNotEmpty) {
+                              UserProfileModal.show(
+                                context,
+                                userId: reqId,
+                                name: requesterName,
+                                photo: requesterPhoto,
+                              );
+                            }
+                          },
+                          child: Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundColor: AppColors.inputBackground,
+                                backgroundImage: (requesterPhoto.isNotEmpty && (requesterPhoto.startsWith('http://') || requesterPhoto.startsWith('https://')))
+                                    ? NetworkImage(requesterPhoto)
+                                    : null,
+                                child: requesterPhoto.isEmpty ? const Icon(Icons.person, color: AppColors.textLight) : null,
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(3),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 1.5),
+                                ),
+                                child: const Icon(Icons.remove_red_eye_rounded, size: 9, color: Colors.white),
+                              ),
+                            ],
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -635,6 +712,14 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                             style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                          tooltip: 'Eliminar solicitud',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _confirmDeleteRequest(doc.id, requesterName, placeName),
+                        ),
                       ],
                     ),
 
@@ -663,7 +748,7 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                         Text(dateTimeStr, style: const TextStyle(fontSize: 12, color: AppColors.textLight)),
                         const Spacer(),
                         const Text(
-                          'Ver detalle e histórico',
+                          'Ver detalles de la reserva',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
                         ),
                         const Icon(Icons.chevron_right, size: 16, color: AppColors.primary),

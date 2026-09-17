@@ -117,7 +117,9 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      primary: false,
       extendBody: true, // Permite que el mapa fluya por detrás de la barra flotante elevada
+      extendBodyBehindAppBar: true,
       body: IndexedStack(
         index: _selectedIndex,
         children: _pages,

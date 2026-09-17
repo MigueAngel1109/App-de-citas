@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
@@ -244,6 +244,54 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
     }
   }
 
+  Future<void> _deleteInvitation(BuildContext context, String invId, {required bool isSent, String? otherPersonName}) async {
+    final title = isSent ? '¿Eliminar invitación enviada?' : '¿Eliminar invitación recibida?';
+    final desc = isSent
+        ? '¿Deseas cancelar y eliminar la invitación que enviaste a "${otherPersonName ?? 'este usuario'}"? Desaparecerá de tu lista.'
+        : '¿Deseas eliminar esta invitación recibida de "${otherPersonName ?? 'este usuario'}"? Esta acción no se puede deshacer.';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(title),
+        content: Text(desc),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance.collection('invitations').doc(invId).delete();
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invitación eliminada correctamente'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al eliminar: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -475,6 +523,14 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                   ],
                 ),
               ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                tooltip: 'Eliminar invitación',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => _deleteInvitation(context, docId, isSent: false, otherPersonName: senderName),
+              ),
             ],
           ),
 
@@ -683,14 +739,14 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
           itemBuilder: (context, index) {
             final doc = sortedDocs[index];
             final data = doc.data() as Map<String, dynamic>;
-            return _buildSentInvitationCard(data);
+            return _buildSentInvitationCard(doc.id, data);
           },
         );
       },
     );
   }
 
-  Widget _buildSentInvitationCard(Map<String, dynamic> data) {
+  Widget _buildSentInvitationCard(String docId, Map<String, dynamic> data) {
     final receiverId = data['receiverId']?.toString() ?? '';
     final receiverName = data['receiverName']?.toString() ?? 'Usuario';
     final receiverPhoto = data['receiverPhoto']?.toString() ?? '';
@@ -792,6 +848,14 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                tooltip: 'Eliminar invitación enviada',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => _deleteInvitation(context, docId, isSent: true, otherPersonName: receiverName),
               ),
             ],
           ),

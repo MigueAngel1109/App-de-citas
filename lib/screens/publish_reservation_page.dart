@@ -2,13 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../utils/app_colors.dart';
 import '../utils/secrets.dart';
+import '../utils/zone_data.dart';
 import 'discover_page.dart';
 
 class PlaceAutocomplete {
@@ -295,6 +296,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       } catch (_) {}
 
       final savedLocation = _selectedLocation;
+      String detectedZone = '';
+      if (savedLocation != null) {
+        final point = LatLng(savedLocation.latitude, savedLocation.longitude);
+        detectedZone = ZoneData.getZoneForPoint(point) ?? '';
+      }
 
       await FirebaseFirestore.instance.collection('reservations').add({
         'userId': user.uid,
@@ -303,6 +309,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         'link': _linkController.text.trim(),
         'placeName': _placeController.text.trim(),
         'location': savedLocation,
+        'zone': detectedZone,
         'dateTime': Timestamp.fromDate(dateTime),
         'planType': _selectedPlan,
         'paymentType': _selectedPayment,
