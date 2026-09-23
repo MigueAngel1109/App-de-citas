@@ -1262,24 +1262,26 @@ class DiscoverPageState extends State<DiscoverPage> {
     return Set<Marker>.from(_markers);
   }
 
-  Set<Circle> get _mapCircles {
-    final Set<Circle> circles = {};
-    for (String zone in _preferredZones) {
-      if (ZoneData.zoneCircles.containsKey(zone)) {
-        final data = ZoneData.zoneCircles[zone]!;
-        circles.add(
-          Circle(
-            circleId: CircleId(zone),
-            center: data['center'],
-            radius: data['radius'],
-            fillColor: AppColors.primary.withOpacity(0.15),
-            strokeColor: AppColors.primary,
+  Set<Polygon> _buildPolygons() {
+    final Set<Polygon> polygons = {};
+    final normPreferred = _preferredZones.map(ZoneData.normalizeZoneName).toSet();
+
+    for (var entry in ZoneData.polygons.entries) {
+      final zoneName = entry.key;
+      if (normPreferred.contains(ZoneData.normalizeZoneName(zoneName))) {
+        polygons.add(
+          Polygon(
+            polygonId: PolygonId(zoneName),
+            points: entry.value,
+            fillColor: AppColors.primary.withOpacity(0.18),
+            strokeColor: AppColors.primary.withOpacity(0.75),
             strokeWidth: 2,
+            consumeTapEvents: false,
           ),
         );
       }
     }
-    return circles;
+    return polygons;
   }
 
   static const String _cleanMapStyle = '''
@@ -1399,8 +1401,8 @@ class DiscoverPageState extends State<DiscoverPage> {
                 tiltGesturesEnabled: false,
                 style: _cleanMapStyle,
                 markers: _combinedMarkers,
-                circles: _mapCircles,
-                polygons: const {},
+                circles: const {},
+                polygons: _buildPolygons(),
                 onMapCreated: (GoogleMapController controller) {
                   _mapController = controller;
                 },
