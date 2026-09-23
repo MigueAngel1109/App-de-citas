@@ -13,6 +13,7 @@ import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
 import '../widgets/map_tutorial_overlay.dart';
+import '../widgets/zone_selection_map.dart';
 
 class ReservationMapItem {
   final String id;
@@ -1499,6 +1500,106 @@ class DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
           ),
+
+          // Barra de filtro de zonas y botón de centrado (visible cuando se está en la vista de Mapa)
+          if (!_showPeopleDiscovery) ...[
+            Positioned(
+              top: topOffset + 64,
+              left: 20,
+              right: 76,
+              child: GestureDetector(
+                onTap: () async {
+                  final result = await Navigator.push<Set<String>>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ZoneSelectionMap(
+                        initialSelectedZones: _preferredZones,
+                      ),
+                    ),
+                  );
+                  if (result != null) {
+                    setState(() {
+                      _preferredZones.clear();
+                      _preferredZones.addAll(result);
+                    });
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+                        'preferredZones': result.toList(),
+                      }).catchError((_) {});
+                    }
+                    _listenToReservations();
+                  }
+                },
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.location_on, color: AppColors.primary, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _preferredZones.isEmpty
+                              ? 'Toca para elegir tus zonas'
+                              : (_preferredZones.length == 1
+                                  ? 'Zona: ${_preferredZones.first}'
+                                  : '${_preferredZones.length} zonas activas'),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.tune, size: 16, color: AppColors.textSecondary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: topOffset + 64,
+              right: 20,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.my_location, color: AppColors.primary, size: 20),
+                  tooltip: 'Mi ubicación',
+                  onPressed: () {
+                    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition, 14.0));
+                  },
+                ),
+              ),
+            ),
+          ],
 
           // Onboarding / Tutorial estático del mapa
           if (_showMapTutorial)

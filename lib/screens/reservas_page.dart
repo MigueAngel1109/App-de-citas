@@ -428,30 +428,35 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
           _buildMyReservationsTab(currentUser.uid),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.primary,
-        icon: const Icon(Icons.add_circle, color: Colors.white),
-        label: const Text('Publicar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PublishReservationPage(
-                onPublished: (loc) {
-                  Navigator.pop(context);
-                  widget.onPublished?.call(loc);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('¡Reserva publicada con éxito! Ya puedes verla en Mis Reservas y en el mapa 🎉'),
-                      backgroundColor: AppColors.primary,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 78.0),
+        child: FloatingActionButton.extended(
+          backgroundColor: AppColors.primary,
+          elevation: 6,
+          icon: const Icon(Icons.add_circle, color: Colors.white),
+          label: const Text('Publicar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PublishReservationPage(
+                  onPublished: (loc) {
+                    Navigator.pop(context);
+                    widget.onPublished?.call(loc);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('¡Reserva publicada con éxito! Ya puedes verla en Mis Reservas y en el mapa 🎉'),
+                        backgroundColor: AppColors.primary,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

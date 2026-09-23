@@ -1837,7 +1837,28 @@ class ZoneData {
     ],
   };
 
-  static const Map<String, Map<String, dynamic>> zoneCircles = {};
+  static const Map<String, Map<String, dynamic>> zoneCircles = {
+    'Chapinero': {'center': LatLng(4.6558, -74.0583), 'radius': 2800.0},
+    'Usaquén': {'center': LatLng(4.7118, -74.0305), 'radius': 4200.0},
+    'Teusaquillo': {'center': LatLng(4.6398, -74.0827), 'radius': 2400.0},
+    'Suba': {'center': LatLng(4.7431, -74.0883), 'radius': 4800.0},
+    'Santa Fe': {'center': LatLng(4.6053, -74.0682), 'radius': 2600.0},
+    'La Candelaria': {'center': LatLng(4.5969, -74.0725), 'radius': 1400.0},
+    'Barrios Unidos': {'center': LatLng(4.6678, -74.0753), 'radius': 2200.0},
+    'Fontibón': {'center': LatLng(4.6738, -74.1378), 'radius': 3500.0},
+    'Engativá': {'center': LatLng(4.7001, -74.1162), 'radius': 3800.0},
+    'Kennedy': {'center': LatLng(4.6292, -74.1539), 'radius': 4200.0},
+    'Puente Aranda': {'center': LatLng(4.6212, -74.1132), 'radius': 2500.0},
+    'Los Mártires': {'center': LatLng(4.6068, -74.0892), 'radius': 1800.0},
+    'Antonio Nariño': {'center': LatLng(4.5888, -74.1002), 'radius': 1800.0},
+    'San Cristóbal': {'center': LatLng(4.5602, -74.0821), 'radius': 3600.0},
+    'Usme': {'center': LatLng(4.4921, -74.1202), 'radius': 4500.0},
+    'Tunjuelito': {'center': LatLng(4.5772, -74.1362), 'radius': 2200.0},
+    'Bosa': {'center': LatLng(4.6181, -74.1912), 'radius': 3500.0},
+    'Rafael Uribe Uribe': {'center': LatLng(4.5681, -74.1152), 'radius': 2600.0},
+    'Ciudad Bolívar': {'center': LatLng(4.5422, -74.1592), 'radius': 4800.0},
+    'Sumapaz': {'center': LatLng(4.0152, -74.3212), 'radius': 8000.0},
+  };
 
   /// Normaliza el nombre de una zona eliminando tildes y pasando a minúsculas
   static String normalizeZoneName(String name) {
