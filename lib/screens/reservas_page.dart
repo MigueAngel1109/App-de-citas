@@ -724,165 +724,178 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
           return bDt.compareTo(aDt);
         });
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-          itemCount: sortedDocs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 14),
-          itemBuilder: (context, index) {
-            final doc = sortedDocs[index];
-            final data = doc.data() as Map<String, dynamic>;
+        // Un solo stream para contar las solicitudes de todas las reservas del anfitrión en vez de N streams
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('reservation_requests')
+              .where('hostUserId', isEqualTo: currentUserId)
+              .snapshots(),
+          builder: (context, requestsSnapshot) {
+            final Map<String, int> requestCountByResId = {};
+            if (requestsSnapshot.hasData) {
+              for (var rDoc in requestsSnapshot.data!.docs) {
+                final rData = rDoc.data() as Map<String, dynamic>;
+                final resId = rData['reservationId']?.toString();
+                if (resId != null && resId.isNotEmpty) {
+                  requestCountByResId[resId] = (requestCountByResId[resId] ?? 0) + 1;
+                }
+              }
+            }
 
-            final placeName = data['placeName'] ?? 'Restaurante';
-            final planType = data['planType'] ?? 'Comida';
-            final paymentType = data['paymentType'] ?? '';
-            final dateTimeStr = _formatDateTime(data['dateTime']);
-            final details = data['details'] ?? '';
-            final photoUrl = (data['placePhoto'] ?? data['restaurantPhoto'] ?? '').toString();
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+              itemCount: sortedDocs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 14),
+              itemBuilder: (context, index) {
+                final doc = sortedDocs[index];
+                final data = doc.data() as Map<String, dynamic>;
 
-            return Container(
-              height: 190,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
+                final placeName = data['placeName'] ?? 'Restaurante';
+                final planType = data['planType'] ?? 'Comida';
+                final paymentType = data['paymentType'] ?? '';
+                final dateTimeStr = _formatDateTime(data['dateTime']);
+                final details = data['details'] ?? '';
+                final photoUrl = (data['placePhoto'] ?? data['restaurantPhoto'] ?? '').toString();
+                final count = requestCountByResId[doc.id] ?? 0;
+
+                return Container(
+                  height: 190,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 14,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // Foto del lugar o fondo estilizado con degradado
-                    if (photoUrl.isNotEmpty && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')))
-                      Image.network(
-                        photoUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          decoration: const BoxDecoration(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Foto del lugar o fondo estilizado con degradado
+                        if (photoUrl.isNotEmpty && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')))
+                          Image.network(
+                            photoUrl,
+                            fit: BoxFit.cover,
+                            cacheWidth: 600,
+                            errorBuilder: (_, __, ___) => Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF262C36), Color(0xFF151922)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  AppColors.primary.withOpacity(0.85),
+                                  const Color(0xFF1E222B),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Center(
+                              child: Icon(Icons.restaurant, size: 70, color: Colors.white.withOpacity(0.15)),
+                            ),
+                          ),
+
+                        // Filtro oscuro semitransparente para legibilidad de tipografía blanca
+                        Container(
+                          decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [Color(0xFF262C36), Color(0xFF151922)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.black.withOpacity(0.4),
+                                Colors.black.withOpacity(0.85),
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
                             ),
                           ),
                         ),
-                      )
-                    else
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              AppColors.primary.withOpacity(0.85),
-                              const Color(0xFF1E222B),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                        ),
-                        child: Center(
-                          child: Icon(Icons.restaurant, size: 70, color: Colors.white.withOpacity(0.15)),
-                        ),
-                      ),
 
-                    // Filtro oscuro semitransparente para legibilidad de tipografía blanca
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.black.withOpacity(0.4),
-                            Colors.black.withOpacity(0.85),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                    ),
-
-                    // Contenido superpuesto
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                        // Contenido superpuesto
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      placeName,
-                                      style: const TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                        shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Row(
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        const Icon(Icons.calendar_month, size: 14, color: Colors.white70),
-                                        const SizedBox(width: 4),
                                         Text(
-                                          dateTimeStr,
-                                          style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500),
+                                          placeName,
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                            shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.calendar_month, size: 14, color: Colors.white70),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              dateTimeStr,
+                                              style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  ],
+                                  ),
+                                  // Acciones: Editar y Eliminar
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white),
+                                    tooltip: 'Editar',
+                                    onPressed: () => _showEditReservationDialog(doc.id, data),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                    tooltip: 'Eliminar',
+                                    onPressed: () => _confirmDeleteReservation(doc.id, placeName),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              if (details.isNotEmpty) ...[
+                                Text(
+                                  details,
+                                  style: const TextStyle(fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                              // Acciones: Editar y Eliminar
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white),
-                                tooltip: 'Editar',
-                                onPressed: () => _showEditReservationDialog(doc.id, data),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
-                                tooltip: 'Eliminar',
-                                onPressed: () => _confirmDeleteReservation(doc.id, placeName),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          if (details.isNotEmpty) ...[
-                            Text(
-                              details,
-                              style: const TextStyle(fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.25),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  paymentType.isNotEmpty ? '$planType • $paymentType' : planType,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('reservation_requests')
-                                    .where('reservationId', isEqualTo: doc.id)
-                                    .snapshots(),
-                                builder: (context, reqSnap) {
-                                  final count = reqSnap.hasData ? reqSnap.data!.docs.length : 0;
-                                  return Container(
+                                const SizedBox(height: 8),
+                              ],
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.25),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      paymentType.isNotEmpty ? '$planType • $paymentType' : planType,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
                                       color: count > 0 ? Colors.pinkAccent : Colors.black.withOpacity(0.4),
@@ -899,17 +912,17 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                                         ),
                                       ],
                                     ),
-                                  );
-                                },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         );

@@ -109,21 +109,26 @@ class DiscoverPageState extends State<DiscoverPage> {
     if (user == null) return;
     _userSub = FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((snap) {
         if (mounted) {
-          setState(() {
-            _markerCache.clear(); // Limpiar caché para re-dibujar marcadores con fotos frescas
-            if (snap.exists && snap.data() != null) {
-              final data = snap.data()!;
-              if (data['preferredZones'] != null && data['preferredZones'] is List) {
+          bool zonesChanged = false;
+          if (snap.exists && snap.data() != null) {
+            final data = snap.data()!;
+            if (data['preferredZones'] != null && data['preferredZones'] is List) {
+              final newZones = (data['preferredZones'] as List).map((e) => e.toString()).toSet();
+              if (newZones.length != _preferredZones.length || !_preferredZones.containsAll(newZones)) {
                 _preferredZones.clear();
-                _preferredZones.addAll((data['preferredZones'] as List).map((e) => e.toString()));
-              }
-              if (data['hasSeenMapTutorial'] != true && !_hasDismissedTutorialLocally) {
-                _showMapTutorial = true;
+                _preferredZones.addAll(newZones);
+                zonesChanged = true;
               }
             }
-          });
-        _listenToReservations(); // Refrescar marcadores en el mapa con las fotos actualizadas
-      }
+            if (data['hasSeenMapTutorial'] != true && !_hasDismissedTutorialLocally) {
+              _showMapTutorial = true;
+            }
+          }
+          setState(() {});
+          if (zonesChanged) {
+            _listenToReservations();
+          }
+        }
     });
   }
 
@@ -1361,27 +1366,6 @@ class DiscoverPageState extends State<DiscoverPage> {
   ]
   ''';
 
-  Set<Polygon> _buildPolygons() {
-    final Set<Polygon> polygons = {};
-    final normPreferred = _preferredZones.map(ZoneData.normalizeZoneName).toSet();
-
-    for (var entry in ZoneData.polygons.entries) {
-      final zoneName = entry.key;
-      if (normPreferred.contains(ZoneData.normalizeZoneName(zoneName))) {
-        polygons.add(
-          Polygon(
-            polygonId: PolygonId(zoneName),
-            points: entry.value,
-            fillColor: AppColors.primary.withOpacity(0.15),
-            strokeColor: AppColors.primary.withOpacity(0.5),
-            strokeWidth: 2,
-            consumeTapEvents: false, // Make sure they don't block marker taps
-          ),
-        );
-      }
-    }
-    return polygons;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1395,8 +1379,10 @@ class DiscoverPageState extends State<DiscoverPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (!_showPeopleDiscovery) ...[
-            Positioned.fill(
+          // Vista 1: Mapa (mantenido con Offstage para no destruir el iframe de Google Maps ni reiniciar texturas)
+          Positioned.fill(
+            child: Offstage(
+              offstage: _showPeopleDiscovery,
               child: GoogleMap(
                 initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
                 myLocationEnabled: false,
@@ -1413,14 +1399,15 @@ class DiscoverPageState extends State<DiscoverPage> {
                 style: _cleanMapStyle,
                 markers: _combinedMarkers,
                 circles: _mapCircles,
-                polygons: _buildPolygons(),
+                polygons: const {},
                 onMapCreated: (GoogleMapController controller) {
                   _mapController = controller;
                 },
               ),
             ),
-          ] else ...[
-            // Vista 2: Descubrir Personas Estilo Tinder
+          ),
+          // Vista 2: Descubrir Personas Estilo Tinder
+          if (_showPeopleDiscovery)
             Positioned.fill(
               top: topOffset + 66,
               bottom: 95,
@@ -1428,7 +1415,6 @@ class DiscoverPageState extends State<DiscoverPage> {
                 onSwitchToMap: () => setState(() => _showPeopleDiscovery = false),
               ),
             ),
-          ],
 
           // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
           Positioned(

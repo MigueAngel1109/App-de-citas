@@ -20,35 +20,38 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-  final GlobalKey<DiscoverPageState> _discoverKey = GlobalKey<DiscoverPageState>();
-  late final List<Widget> _pages;
+  final Set<int> _loadedTabs = {0};
 
-  String? _userPhotoUrl;
-  int _pendingRequestsCount = 0;
-  int _pendingInvitationsCount = 0;
-  StreamSubscription? _userSub;
-  StreamSubscription? _requestsSub;
-  StreamSubscription? _invitationsSub;
+  Widget _buildTabBody(int index) {
+    if (!_loadedTabs.contains(index)) {
+      return const SizedBox.shrink();
+    }
+    switch (index) {
+      case 0:
+        return DiscoverPage(key: _discoverKey);
+      case 1:
+        return const CitasPage();
+      case 2:
+        return ReservasPage(
+          onPublished: (loc) {
+            setState(() {
+              _selectedIndex = 0;
+            });
+            if (loc != null) {
+              _discoverKey.currentState?.moveToLocation(LatLng(loc.latitude, loc.longitude));
+            }
+          },
+        );
+      case 3:
+        return const MyProfilePage();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _pages = [
-      DiscoverPage(key: _discoverKey),
-      const CitasPage(),
-      ReservasPage(
-        onPublished: (loc) {
-          // Cambiar a la pestaña del mapa tras publicar exitosamente
-          setState(() {
-            _selectedIndex = 0;
-          });
-          if (loc != null) {
-            _discoverKey.currentState?.moveToLocation(LatLng(loc.latitude, loc.longitude));
-          }
-        },
-      ),
-      const MyProfilePage(),
-    ];
     _listenToUserData();
   }
 
@@ -108,8 +111,17 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  final GlobalKey<DiscoverPageState> _discoverKey = GlobalKey<DiscoverPageState>();
+  String? _userPhotoUrl;
+  int _pendingRequestsCount = 0;
+  int _pendingInvitationsCount = 0;
+  StreamSubscription? _userSub;
+  StreamSubscription? _requestsSub;
+  StreamSubscription? _invitationsSub;
+
   void _onItemTapped(int index) {
     setState(() {
+      _loadedTabs.add(index);
       _selectedIndex = index;
     });
   }
@@ -122,7 +134,12 @@ class _HomePageState extends State<HomePage> {
       extendBodyBehindAppBar: true,
       body: IndexedStack(
         index: _selectedIndex,
-        children: _pages,
+        children: [
+          _buildTabBody(0),
+          _buildTabBody(1),
+          _buildTabBody(2),
+          _buildTabBody(3),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         bottom: true,
