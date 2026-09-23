@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -13,7 +12,7 @@ import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
-import '../widgets/zone_selection_map.dart';
+import '../widgets/map_tutorial_overlay.dart';
 
 class ReservationMapItem {
   final String id;
@@ -71,12 +70,10 @@ class DiscoverPageState extends State<DiscoverPage> {
   
   Set<Marker> _markers = {};
   List<ReservationMapItem> _reservationsList = [];
-  bool _isLoadingLocation = true;
   bool _showPeopleDiscovery = false;
   final Set<String> _preferredZones = {};
-
-  // Icono del punto azul para la ubicación actual
-  BitmapDescriptor? _blueDotIcon;
+  bool _showMapTutorial = false;
+  bool _hasDismissedTutorialLocally = false;
 
   // Cache para no descargar la foto cada vez que se mueve el mapa
   final Map<String, BitmapDescriptor> _markerCache = {};
@@ -99,6 +96,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     _positionStreamSub?.cancel();
     _userSub?.cancel();
     _reservationsSub?.cancel();
+    _mapController = null;
     super.dispose();
   }
 
@@ -118,6 +116,9 @@ class DiscoverPageState extends State<DiscoverPage> {
               if (data['preferredZones'] != null && data['preferredZones'] is List) {
                 _preferredZones.clear();
                 _preferredZones.addAll((data['preferredZones'] as List).map((e) => e.toString()));
+              }
+              if (data['hasSeenMapTutorial'] != true && !_hasDismissedTutorialLocally) {
+                _showMapTutorial = true;
               }
             }
           });
@@ -173,9 +174,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  Future<void> _determinePosition() async {
-    if (mounted) setState(() => _isLoadingLocation = false);
-  }
+  Future<void> _determinePosition() async {}
 
   int? _calculateAge(dynamic birthDate) {
     if (birthDate == null) return null;
@@ -311,49 +310,6 @@ class DiscoverPageState extends State<DiscoverPage> {
     return false;
   }
 
-  Future<void> _openZoneFilter() async {
-    final result = await Navigator.push<Set<String>>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ZoneSelectionMap(
-          initialSelectedZones: _preferredZones,
-        ),
-      ),
-    );
-
-    if (result != null) {
-      setState(() {
-        _preferredZones.clear();
-        _preferredZones.addAll(result);
-        _markerCache.clear();
-      });
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        try {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-            'preferredZones': result.toList(),
-          });
-        } catch (e) {
-          debugPrint('Error actualizando zonas preferidas: $e');
-        }
-      }
-
-      if (result.isNotEmpty) {
-        final firstZone = result.first;
-        if (ZoneData.polygons.containsKey(firstZone)) {
-          final points = ZoneData.polygons[firstZone]!;
-          if (points.isNotEmpty) {
-            _mapController?.animateCamera(
-              CameraUpdate.newLatLngZoom(points[0], 13.5),
-            );
-          }
-        }
-      }
-
-      _listenToReservations();
-    }
-  }
 
   void _listenToReservations() {
     _reservationsSub?.cancel();
@@ -1323,25 +1279,84 @@ class DiscoverPageState extends State<DiscoverPage> {
   static const String _cleanMapStyle = '''
   [
     {
-      "featureType": "poi",
-      "elementType": "all",
-      "stylers": [
-        { "visibility": "off" }
-      ]
+      "elementType": "geometry",
+      "stylers": [{ "color": "#f5f6f8" }]
     },
     {
-      "featureType": "transit",
-      "elementType": "all",
-      "stylers": [
-        { "visibility": "off" }
-      ]
+      "elementType": "labels.icon",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "elementType": "labels.text.fill",
+      "stylers": [{ "color": "#7a7f87" }]
+    },
+    {
+      "elementType": "labels.text.stroke",
+      "stylers": [{ "color": "#ffffff" }, { "weight": 2 }]
+    },
+    {
+      "featureType": "administrative",
+      "elementType": "geometry",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "administrative.neighborhood",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "administrative.land_parcel",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "poi",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "poi.business",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "road",
+      "elementType": "geometry",
+      "stylers": [{ "color": "#ffffff" }]
     },
     {
       "featureType": "road",
       "elementType": "labels.icon",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "road.arterial",
+      "elementType": "labels",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "road.local",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "transit",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "landscape",
       "stylers": [
-        { "visibility": "off" }
+        { "saturation": -100 },
+        { "lightness": 12 }
       ]
+    },
+    {
+      "featureType": "landscape.man_made",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "landscape.natural.terrain",
+      "stylers": [{ "visibility": "off" }]
+    },
+    {
+      "featureType": "water",
+      "elementType": "geometry",
+      "stylers": [{ "color": "#e2e6ea" }]
     }
   ]
   ''';
@@ -1380,7 +1395,6 @@ class DiscoverPageState extends State<DiscoverPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Vista 1: Mapa de Google con Reservas (Estilo limpio sin POIs externos)
           if (!_showPeopleDiscovery) ...[
             Positioned.fill(
               child: GoogleMap(
@@ -1392,6 +1406,10 @@ class DiscoverPageState extends State<DiscoverPage> {
                 compassEnabled: false,
                 indoorViewEnabled: false,
                 trafficEnabled: false,
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
                 style: _cleanMapStyle,
                 markers: _combinedMarkers,
                 circles: _mapCircles,
@@ -1401,326 +1419,6 @@ class DiscoverPageState extends State<DiscoverPage> {
                 },
               ),
             ),
-            
-            // Badge indicador de reservas activas y selector de zonas
-            Positioned(
-              top: topOffset + 66,
-              left: 16,
-              right: 76,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  children: [
-                    // Badge reservas
-                    GestureDetector(
-                      onTap: () {
-                        if (_reservationsList.isNotEmpty) {
-                          _openReservationCarousel();
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface.withOpacity(0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.celebration, color: AppColors.primary, size: 17),
-                            const SizedBox(width: 7),
-                            Text(
-                              _preferredZones.isEmpty
-                                  ? 'Sin zonas elegidas'
-                                  : '${_markers.length} ${_markers.length == 1 ? "cita en tu zona" : "citas en tus zonas"}',
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12.5,
-                              ),
-                            ),
-                            if (_markers.isNotEmpty) ...[
-                              const SizedBox(width: 5),
-                              const Icon(Icons.touch_app_rounded, color: AppColors.primary, size: 13),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Botón para filtrar/cambiar zonas
-                    GestureDetector(
-                      onTap: _openZoneFilter,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface.withOpacity(0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 1.2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.tune_rounded, color: AppColors.primary, size: 15),
-                            const SizedBox(width: 5),
-                            Text(
-                              _preferredZones.isEmpty
-                                  ? 'Elegir Zonas'
-                                  : '${_preferredZones.length} ${_preferredZones.length == 1 ? "zona" : "zonas"}',
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Botón personalizado de ubicación superior derecho
-            Positioned(
-              top: topOffset + 66,
-              right: 20,
-              child: FloatingActionButton(
-                heroTag: 'btnLocation',
-                mini: true,
-                backgroundColor: Colors.white,
-                child: const Icon(Icons.my_location, color: AppColors.primary),
-                onPressed: () {
-                  _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition, 14.0));
-                },
-              ),
-            ),
-
-            // Banner flotante cuando no hay zonas seleccionadas
-            if (_preferredZones.isEmpty)
-              Positioned(
-                top: topOffset + 120,
-                left: 20,
-                right: 20,
-                child: GestureDetector(
-                  onTap: _openZoneFilter,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.5), width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.15),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.add_location_alt_rounded, color: AppColors.primary, size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Elige tus zonas para ver citas',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'Solo aparecerán en el mapa las citas que estén dentro de las zonas que selecciones.',
-                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.2),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-            // Mensaje informativo cuando hay zonas elegidas pero ninguna cita en ellas
-            if (_preferredZones.isNotEmpty && _reservationsList.isEmpty && !_isLoadingLocation)
-              Positioned(
-                bottom: 120,
-                left: 24,
-                right: 24,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.location_off_rounded, color: AppColors.primary, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'No hay citas activas en tus ${_preferredZones.length} ${_preferredZones.length == 1 ? "zona seleccionada" : "zonas seleccionadas"}. Puedes agregar más zonas tocando el botón de arriba.',
-                          style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.3),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            if (_isLoadingLocation)
-              const Center(
-                child: Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Buscando tu ubicación...'),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            
-            // Carrusel Inferior de Reservas
-            if (_reservationsList.isNotEmpty)
-              Positioned(
-                bottom: 130,
-                left: 0,
-                right: 0,
-                height: 110,
-                child: ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(context).copyWith(
-                    dragDevices: {
-                      PointerDeviceKind.touch,
-                      PointerDeviceKind.mouse,
-                    },
-                  ),
-                  child: PageView.builder(
-                    controller: PageController(viewportFraction: 0.85),
-                  itemCount: _reservationsList.length,
-                  onPageChanged: (index) {
-                    final res = _reservationsList[index];
-                    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(res.latLng, 15.0));
-                  },
-                  itemBuilder: (context, index) {
-                    final res = _reservationsList[index];
-                    return GestureDetector(
-                      onTap: () => _openReservationCarousel(initialDocId: res.id),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
-                              child: SizedBox(
-                                width: 90,
-                                height: 110,
-                                child: Image.network(
-                                  res.restaurantPhoto,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    color: Colors.grey[200],
-                                    child: const Icon(Icons.restaurant, color: Colors.grey),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      res.placeName,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      res.formattedDate,
-                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                      maxLines: 1,
-                                    ),
-                                    const Spacer(),
-                                    Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 10,
-                                          backgroundImage: res.hostPhoto.isNotEmpty ? NetworkImage(res.hostPhoto) : null,
-                                          backgroundColor: Colors.grey[300],
-                                          child: res.hostPhoto.isEmpty ? const Icon(Icons.person, size: 12, color: Colors.white) : null,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            res.hostName,
-                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              ),
           ] else ...[
             // Vista 2: Descubrir Personas Estilo Tinder
             Positioned.fill(
@@ -1815,6 +1513,18 @@ class DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
           ),
+
+          // Onboarding / Tutorial estático del mapa
+          if (_showMapTutorial)
+            MapTutorialOverlay(
+              onDismiss: () {
+                setState(() {
+                  _showMapTutorial = false;
+                  _hasDismissedTutorialLocally = true;
+                });
+                MapTutorialOverlay.markAsSeen();
+              },
+            ),
         ],
       ),
     );

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../utils/app_colors.dart';
-import '../utils/zone_data.dart';
 
+/// Selector visual ligero de zonas y localidades de Bogotá.
+/// Reemplaza el mapa pesado para evitar instanciar múltiples motores de Google Maps
+/// y prevenir cierres abruptos / sobrecostos de memoria.
 class ZoneSelectionMap extends StatefulWidget {
   final Set<String> initialSelectedZones;
 
@@ -13,8 +14,32 @@ class ZoneSelectionMap extends StatefulWidget {
 }
 
 class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
-  late GoogleMapController _mapController;
   final Set<String> _selectedZones = {};
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  static const List<Map<String, dynamic>> _bogotaLocalities = [
+    {'name': 'Chapinero', 'icon': Icons.nightlife, 'desc': 'Zona Rosa, Zona G, Parque 93, Quinta Camacho'},
+    {'name': 'Usaquén', 'icon': Icons.restaurant, 'desc': 'Santa Bárbara, Cedritos, Centro Histórico de Usaquén'},
+    {'name': 'Teusaquillo', 'icon': Icons.park, 'desc': 'Park Way, La Soledad, Galerías, Salitre'},
+    {'name': 'Suba', 'icon': Icons.nature_people, 'desc': 'La Colina, Niza, Suba Centro'},
+    {'name': 'Santa Fe', 'icon': Icons.museum, 'desc': 'La Macarena, Torres del Parque, Centro Internacional'},
+    {'name': 'La Candelaria', 'icon': Icons.history_edu, 'desc': 'Centro Histórico, Museos, Chorro de Quevedo'},
+    {'name': 'Barrios Unidos', 'icon': Icons.sports_tennis, 'desc': 'El Lago, Polo, 7 de Agosto'},
+    {'name': 'Fontibón', 'icon': Icons.flight_takeoff, 'desc': 'Ciudad Salitre Occidental, Modelia'},
+    {'name': 'Engativá', 'icon': Icons.apartment, 'desc': 'Normandía, Álamos, Minuto de Dios'},
+    {'name': 'Kennedy', 'icon': Icons.storefront, 'desc': 'Américas, Castilla, Timiza'},
+    {'name': 'Puente Aranda', 'icon': Icons.precision_manufacturing, 'desc': 'Ciudad Montes, Industrial'},
+    {'name': 'Los Mártires', 'icon': Icons.location_city, 'desc': 'Eduardo Santos, Santa Isabel'},
+    {'name': 'Antonio Nariño', 'icon': Icons.home_work, 'desc': 'Restrepo, Santander'},
+    {'name': 'San Cristóbal', 'icon': Icons.terrain, 'desc': '20 de Julio, Suroriente'},
+    {'name': 'Usme', 'icon': Icons.landscape, 'desc': 'Usme Pueblo, La Flora'},
+    {'name': 'Tunjuelito', 'icon': Icons.water_drop, 'desc': 'Venecia, San Vicente'},
+    {'name': 'Bosa', 'icon': Icons.domain, 'desc': 'Bosa Centro, El Recreo'},
+    {'name': 'Rafael Uribe Uribe', 'icon': Icons.signpost, 'desc': 'Quiroga, Olaya'},
+    {'name': 'Ciudad Bolívar', 'icon': Icons.tram, 'desc': 'TransMiCable, El Ensueño'},
+    {'name': 'Sumapaz', 'icon': Icons.eco, 'desc': 'Páramo de Sumapaz, Región rural'},
+  ];
 
   @override
   void initState() {
@@ -22,26 +47,10 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
     _selectedZones.addAll(widget.initialSelectedZones);
   }
 
-  void _onMapCreated(GoogleMapController controller) {
-    _mapController = controller;
-    _mapController.setMapStyle('''
-      [
-        {"elementType": "geometry", "stylers": [{"color": "#f5f5f5"}]},
-        {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-        {"elementType": "labels.text.fill", "stylers": [{"color": "#555555"}]},
-        {"elementType": "labels.text.stroke", "stylers": [{"color": "#f5f5f5"}]},
-        {"featureType": "administrative", "elementType": "geometry.stroke", "stylers": [{"color": "#c9c9c9"}]},
-        {"featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{"color": "#333333"}]},
-        {"featureType": "poi", "stylers": [{"visibility": "off"}]},
-        {"featureType": "road", "elementType": "geometry", "stylers": [{"color": "#ffffff"}]},
-        {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#e0e0e0"}]},
-        {"featureType": "road.highway", "elementType": "geometry", "stylers": [{"color": "#e8e8e8"}]},
-        {"featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{"color": "#666666"}]},
-        {"featureType": "transit", "stylers": [{"visibility": "off"}]},
-        {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#c8dff0"}]},
-        {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#8ab4cc"}]}
-      ]
-    ''');
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _toggleZone(String zoneName) {
@@ -54,167 +63,239 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
     });
   }
 
-  Set<Polygon> _buildPolygons() {
-    final Set<Polygon> polygons = {};
-    for (var entry in ZoneData.polygons.entries) {
-      final zoneName = entry.key;
-      final isSelected = _selectedZones.contains(zoneName);
+  void _selectAll() {
+    setState(() {
+      for (final loc in _bogotaLocalities) {
+        _selectedZones.add(loc['name'] as String);
+      }
+    });
+  }
 
-      final Color activeColor = const Color(0xFFE53935);
-      final Color inactiveColor = const Color(0xFF424242);
-
-      polygons.add(
-        Polygon(
-          polygonId: PolygonId(zoneName),
-          points: entry.value,
-          fillColor: isSelected
-              ? activeColor.withOpacity(0.30)
-              : inactiveColor.withOpacity(0.06),
-          strokeColor: isSelected
-              ? activeColor
-              : inactiveColor.withOpacity(0.35),
-          strokeWidth: isSelected ? 3 : 1,
-          consumeTapEvents: true,
-          onTap: () => _toggleZone(zoneName),
-        ),
-      );
-    }
-    return polygons;
+  void _clearAll() {
+    setState(() {
+      _selectedZones.clear();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _bogotaLocalities.where((loc) {
+      final name = loc['name'] as String;
+      final desc = loc['desc'] as String;
+      final query = _searchQuery.toLowerCase().trim();
+      if (query.isEmpty) return true;
+      return name.toLowerCase().contains(query) || desc.toLowerCase().contains(query);
+    }).toList();
+
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
-        leading: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
-              ],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+          onPressed: () => Navigator.pop(context, _selectedZones),
+        ),
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Zonas de Interés',
+              style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            child: IconButton(
-              icon: Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
-              onPressed: () => Navigator.pop(context, widget.initialSelectedZones),
+            Text(
+              'Selecciona dónde quieres ver y recibir citas',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: _selectedZones.length == _bogotaLocalities.length ? _clearAll : _selectAll,
+            child: Text(
+              _selectedZones.length == _bogotaLocalities.length ? 'Deseleccionar' : 'Todas',
+              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Buscador
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (val) => setState(() => _searchQuery = val),
+                decoration: InputDecoration(
+                  hintText: 'Buscar localidad o barrio (ej. Chapinero, 93)...',
+                  hintStyle: const TextStyle(fontSize: 13, color: AppColors.textLight),
+                  prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.divider)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.divider)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                ),
+              ),
+            ),
+
+            // Contador de zonas
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${_selectedZones.length} ${_selectedZones.length == 1 ? "zona seleccionada" : "zonas seleccionadas"}',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                  ),
+                  if (_selectedZones.isNotEmpty)
+                    TextButton(
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+                      onPressed: _clearAll,
+                      child: const Text('Limpiar', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    ),
+                ],
+              ),
+            ),
+
+            // Listado de localidades tipo tarjeta
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No encontramos zonas para "$_searchQuery"',
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 80),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) {
+                        final loc = filtered[i];
+                        final name = loc['name'] as String;
+                        final desc = loc['desc'] as String;
+                        final icon = loc['icon'] as IconData;
+                        final isSelected = _selectedZones.contains(name);
+
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _toggleZone(name),
+                            borderRadius: BorderRadius.circular(16),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isSelected ? AppColors.primary.withOpacity(0.07) : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isSelected ? AppColors.primary : AppColors.divider,
+                                  width: isSelected ? 1.8 : 1,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? AppColors.primary : const Color(0xFFF1F3F6),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      icon,
+                                      color: isSelected ? Colors.white : AppColors.textSecondary,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name,
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.bold,
+                                            color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          desc,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: isSelected ? AppColors.primary : Colors.transparent,
+                                      border: Border.all(
+                                        color: isSelected ? AppColors.primary : AppColors.textLight,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: isSelected
+                                        ? const Icon(Icons.check, color: Colors.white, size: 15)
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context, _selectedZones),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              child: Text(
+                _selectedZones.isEmpty
+                    ? 'Guardar sin zonas'
+                    : 'Aplicar ${_selectedZones.length} ${_selectedZones.length == 1 ? "Zona" : "Zonas"}',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ),
           ),
         ),
       ),
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(4.65, -74.09),
-              zoom: 11.2,
-            ),
-            onMapCreated: _onMapCreated,
-            polygons: _buildPolygons(),
-            myLocationEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            compassEnabled: false,
-          ),
-
-          // Panel inferior con zonas seleccionadas y botón guardar
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 32,
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.10),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.location_on_rounded, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        _selectedZones.isEmpty
-                            ? 'Toca un pin para seleccionar una zona'
-                            : '${_selectedZones.length} ${_selectedZones.length == 1 ? 'zona seleccionada' : 'zonas seleccionadas'}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: _selectedZones.isEmpty ? AppColors.textSecondary : AppColors.textPrimary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_selectedZones.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      alignment: WrapAlignment.center,
-                      children: _selectedZones.map((z) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.primary.withOpacity(0.5)),
-                        ),
-                        child: Text(z, style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w600)),
-                      )).toList(),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context, _selectedZones),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Guardar',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
-

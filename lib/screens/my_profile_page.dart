@@ -44,7 +44,7 @@ class MyProfilePage extends StatelessWidget {
             tooltip: 'Editar Perfil',
             onPressed: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const ProfileSetupPage()),
+                MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
               );
             },
           ),
@@ -76,7 +76,7 @@ class MyProfilePage extends StatelessWidget {
           final interestedIn = data['interestedIn'] ?? '';
           final relationshipGoal = data['relationshipGoal'] ?? '';
 
-          // Trabajo y escuela
+          // Ocupación y escuela
           final work = data['work'] ?? '';
           final school = data['school'] ?? '';
 
@@ -92,12 +92,12 @@ class MyProfilePage extends StatelessWidget {
           final smokingTobacco = lifestyle['smokingTobacco'];
           final smokingCannabis = lifestyle['smokingCannabis'];
           final workout = lifestyle['workout'];
-          final diet = lifestyle['diet'];
           final sleepPattern = lifestyle['sleepPattern'];
 
           // Información personal
           final personal = data['personal'] as Map<String, dynamic>? ?? {};
           final zodiac = personal['zodiac'];
+          final mbti = personal['mbti'] ?? data['mbti'];
           final education = personal['education'];
           final loveLanguage = personal['loveLanguage'];
           final familyPlans = personal['familyPlans'];
@@ -168,7 +168,7 @@ class MyProfilePage extends StatelessWidget {
                                         TextButton.icon(
                                           onPressed: () {
                                             Navigator.of(context).push(
-                                              MaterialPageRoute(builder: (context) => const ProfileSetupPage()),
+                                              MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
                                             );
                                           },
                                           icon: const Icon(Icons.refresh, size: 16, color: AppColors.primary),
@@ -225,7 +225,7 @@ class MyProfilePage extends StatelessWidget {
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (context) => const ProfileSetupPage()),
+                              MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
                             );
                           },
                           icon: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
@@ -253,52 +253,51 @@ class MyProfilePage extends StatelessWidget {
                     const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
                   ],
                 ),
+                const SizedBox(height: 8),
 
-                // Género y Orientaciones
-                const SizedBox(height: 6),
+                // Etiquetas de Género y Orientación
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     if (showGender && gender.isNotEmpty)
-                      _buildMiniBadge(Icons.person_outline, gender),
-                    ...sexualOrientation.map((ori) => _buildMiniBadge(Icons.favorite_border, ori)),
+                      _buildTagBadge(gender),
+                    ...sexualOrientation.map((o) => _buildTagBadge(o)),
                     if (interestedIn.isNotEmpty)
-                      _buildMiniBadge(Icons.visibility_outlined, 'Busca: $interestedIn'),
+                      _buildTagBadge('Busca: $interestedIn'),
                   ],
                 ),
+                const SizedBox(height: 20),
 
-                const SizedBox(height: 16),
-
-                // Intención de relación (Destacado)
-                if (relationshipGoal.isNotEmpty)
+                // Objetivo de relación
+                if (relationshipGoal.isNotEmpty) ...[
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.auto_awesome, color: AppColors.primary, size: 22),
+                        const Icon(Icons.auto_awesome, color: AppColors.primary, size: 24),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('BUSCO EN LA APP', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1, color: AppColors.primary)),
+                              const Text('BUSCANDO EN LA APP', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary, letterSpacing: 1)),
                               const SizedBox(height: 2),
                               Text(relationshipGoal, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                             ],
                           ),
-                        )
+                        ),
                       ],
                     ),
                   ),
-
-                const SizedBox(height: 20),
+                  const SizedBox(height: 20),
+                ],
 
                 // Sobre mí (Bio)
                 if (bio.isNotEmpty) ...[
@@ -309,14 +308,14 @@ class MyProfilePage extends StatelessWidget {
                   const SizedBox(height: 20),
                 ],
 
-                // Trabajo
-                if (work.isNotEmpty) ...[
-                  _buildSectionHeader('Ocupación'),
+                // Ocupación y Educación
+                if (work.isNotEmpty || school.isNotEmpty) ...[
+                  _buildSectionHeader('Ocupación y Educación'),
                   _buildInfoCard(
                     Column(
                       children: [
-                        if (work.isNotEmpty)
-                          _buildListTileInfo(Icons.work_outline, work),
+                        if (work.isNotEmpty) _buildListTileInfo(Icons.work_outline, work),
+                        if (school.isNotEmpty) _buildListTileInfo(Icons.school_outlined, school),
                       ],
                     ),
                   ),
@@ -346,7 +345,7 @@ class MyProfilePage extends StatelessWidget {
                   const SizedBox(height: 20),
                 ],
 
-                // Estilo de Vida y Hábitos
+                // Estilo de Vida y Hábitos (sin dieta)
                 _buildSectionHeader('Estilo de vida'),
                 _buildInfoCard(
                   Wrap(
@@ -358,20 +357,20 @@ class MyProfilePage extends StatelessWidget {
                       if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
                       if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
                       if (workout != null) _buildTagBadge('💪 $workout'),
-                      if (diet != null) _buildTagBadge('🥗 $diet'),
                       if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
 
-                // Información Personal y Antecedentes
+                // Información Personal y Antecedentes (con MBTI)
                 _buildSectionHeader('Más sobre mí'),
                 _buildInfoCard(
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
+                      if (mbti != null) _buildTagBadge('🧠 MBTI: $mbti'),
                       if (zodiac != null) _buildTagBadge('⭐ $zodiac'),
                       if (education != null) _buildTagBadge('🎓 $education'),
                       if (loveLanguage != null) _buildTagBadge('💖 $loveLanguage'),
@@ -452,30 +451,11 @@ class MyProfilePage extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: child,
-    );
-  }
-
-  Widget _buildMiniBadge(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.inputBorder),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppColors.textSecondary),
-          const SizedBox(width: 6),
-          Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-        ],
-      ),
+      child: child,
     );
   }
 
@@ -483,8 +463,8 @@ class MyProfilePage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.inputBorder),
       ),
       child: Text(
@@ -497,7 +477,7 @@ class MyProfilePage extends StatelessWidget {
   Widget _buildListTileInfo(IconData icon, String text, {Color? iconColor, Widget? trailing}) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: iconColor ?? AppColors.textSecondary),
+        Icon(icon, color: iconColor ?? AppColors.primary, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Text(text, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
@@ -507,4 +487,3 @@ class MyProfilePage extends StatelessWidget {
     );
   }
 }
-

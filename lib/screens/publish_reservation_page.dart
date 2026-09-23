@@ -3,13 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-
 import '../utils/app_colors.dart';
 import '../utils/secrets.dart';
-import '../utils/zone_data.dart';
 import 'discover_page.dart';
 
 class PlaceAutocomplete {
@@ -46,8 +44,10 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
   bool _isPublishing = false;
   bool _isFetchingPlace = false;
+  bool _lockDateTime = false;
 
-  final List<String> _planTypes = ['Comida/Cena', 'Tragos', 'Café/Brunch'];
+  // Categorías con Café y Brunch separados
+  final List<String> _planTypes = ['Comida/Cena', 'Tragos', 'Café', 'Brunch'];
   final List<String> _paymentTypes = ['Yo invito', 'Cuentas separadas', 'Abierto a discutir'];
 
   @override
@@ -58,11 +58,52 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     super.dispose();
   }
 
+  Future<void> _openExternalPlatform(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _parseReservationLink(String url) {
+    final clean = url.trim().toLowerCase();
+    if (clean.contains('opentable.com')) {
+      try {
+        final uri = Uri.parse(url.trim());
+        final segments = uri.pathSegments;
+        if (segments.isNotEmpty) {
+          String candidate = segments.last;
+          if (candidate.isEmpty && segments.length > 1) {
+            candidate = segments[segments.length - 2];
+          }
+          if (candidate != 'r' && candidate.isNotEmpty) {
+            final formatted = candidate
+                .replaceAll('-', ' ')
+                .replaceAll('_', ' ')
+                .split(' ')
+                .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '')
+                .join(' ');
+            if (_placeController.text.trim().isEmpty) {
+              _placeController.text = '$formatted Bogotá';
+              _searchPlaces('$formatted Bogotá').then((places) {
+                if (places.isNotEmpty && mounted) {
+                  _getPlaceDetails(places.first.placeId);
+                }
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error parsing OpenTable url: $e');
+      }
+    }
+  }
+
   Future<List<PlaceAutocomplete>> _searchPlaces(String query) async {
     final cleanQuery = query.trim();
     if (cleanQuery.length < 2) return [];
 
-    // 1. En plataformas móviles nativas (Android/iOS) con Google Places
+    // 1. Con Google Places
     if (!kIsWeb && googleMapsApiKey != 'TU_API_KEY_AQUI') {
       try {
         final url = Uri.parse(
@@ -83,7 +124,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       }
     }
 
-    // 2. En Web o fallback multiplataforma libre de CORS (Photon - OpenStreetMap)
+    // 2. Fallback multiplataforma (Photon - OpenStreetMap)
     try {
       final photonUrl = Uri.parse(
         'https://photon.komoot.io/api/?q=${Uri.encodeComponent(cleanQuery)}&lat=4.6097&lon=-74.0817&limit=6',
@@ -100,73 +141,43 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             if (props == null) continue;
 
             final name = props['name'] as String? ?? '';
-            if (name.isEmpty) continue;
-
             final street = props['street'] as String? ?? '';
-            final city = props['city'] as String? ?? props['locality'] as String? ?? 'Bogotá';
-            final country = props['country'] as String? ?? 'Colombia';
-
-            final descParts = [name, if (street.isNotEmpty) street, city, country];
-            final description = descParts.join(', ');
+            final city = props['city'] as String? ?? props['state'] as String? ?? 'Bogotá';
+            
+            String label = name;
+            if (street.isNotEmpty && street != name) label += ', $street';
+            if (city.isNotEmpty) label += ', $city';
 
             GeoPoint? point;
-            if (geom != null && geom['coordinates'] is List) {
+            if (geom != null && geom['coordinates'] != null) {
               final coords = geom['coordinates'] as List;
               if (coords.length >= 2) {
-                final lng = (coords[0] as num).toDouble();
-                final lat = (coords[1] as num).toDouble();
-                point = GeoPoint(lat, lng);
+                point = GeoPoint((coords[1] as num).toDouble(), (coords[0] as num).toDouble());
               }
             }
 
             results.add(PlaceAutocomplete(
-              description: description,
+              description: label,
               placeId: props['osm_id']?.toString() ?? '',
               location: point,
             ));
           }
-          if (results.isNotEmpty) return results;
+          return results;
         }
       }
     } catch (e) {
       debugPrint('Photon search error: $e');
     }
 
-    // 3. Fallback con Nominatim OpenStreetMap
-    try {
-      final nominatimUrl = Uri.parse(
-        'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(cleanQuery)}&format=json&countrycodes=co&limit=5',
-      );
-      final response = await http.get(nominatimUrl, headers: {
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 4));
-
-      if (response.statusCode == 200) {
-        final List data = json.decode(utf8.decode(response.bodyBytes));
-        if (data.isNotEmpty) {
-          return data.map((p) {
-            final lat = double.tryParse(p['lat'].toString()) ?? 4.6097;
-            final lon = double.tryParse(p['lon'].toString()) ?? -74.0817;
-            return PlaceAutocomplete(
-              description: p['display_name'] as String,
-              placeId: p['place_id'].toString(),
-              location: GeoPoint(lat, lon),
-            );
-          }).toList();
-        }
-      }
-    } catch (e) {
-      debugPrint('Nominatim search error: $e');
-    }
-
     return [];
   }
 
   Future<void> _getPlaceDetails(String placeId) async {
-    if (googleMapsApiKey == 'TU_API_KEY_AQUI' || placeId.isEmpty) return;
     setState(() => _isFetchingPlace = true);
-    final url = Uri.parse('https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&fields=geometry&key=$googleMapsApiKey');
     try {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&fields=geometry,name,formatted_address&key=$googleMapsApiKey',
+      );
       final response = await http.get(url).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -189,7 +200,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     setState(() => _isFetchingPlace = true);
     try {
       setState(() {
-        _selectedLocation = const GeoPoint(4.6097, -74.0817); // Bogota por defecto
+        _selectedLocation = const GeoPoint(4.6097, -74.0817);
         if (_placeController.text.trim().isEmpty) {
           _placeController.text = 'Mi ubicación actual (Bogotá)';
         }
@@ -198,35 +209,27 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('📍 Ubicación actual fijada correctamente'),
+            content: Text('📍 Ubicación fijada correctamente'),
             duration: Duration(seconds: 2),
           ),
         );
       }
     } catch (e) {
       setState(() {
-        // Fallback a coordenadas de Bogotá centro
         _selectedLocation = const GeoPoint(4.6097, -74.0817);
         if (_placeController.text.trim().isEmpty) {
           _placeController.text = 'Bogotá Centro';
         }
         _isFetchingPlace = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('📍 Se fijó la ubicación central de Bogotá'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
     }
   }
 
   Future<void> _pickDate() async {
+    if (_lockDateTime) return;
     final date = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
@@ -236,9 +239,10 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   }
 
   Future<void> _pickTime() async {
+    if (_lockDateTime) return;
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.now(),
+      initialTime: _selectedTime ?? TimeOfDay.now(),
     );
     if (time != null) {
       setState(() => _selectedTime = time);
@@ -253,7 +257,12 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     }
 
     if (_placeController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Indica el nombre del restaurante o lugar')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor ingresa el nombre del lugar')));
+      return;
+    }
+
+    if (_selectedLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes seleccionar un lugar de la lista o fijar tu ubicación')));
       return;
     }
 
@@ -261,66 +270,57 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecciona la fecha y la hora')));
       return;
     }
-    
-    // Si aún no se fijaron coordenadas, usar ubicación por defecto
-    if (_selectedLocation == null) {
-      _selectedLocation = const GeoPoint(4.6097, -74.0817);
-    }
-
-    final dateTime = DateTime(
-      _selectedDate!.year, _selectedDate!.month, _selectedDate!.day,
-      _selectedTime!.hour, _selectedTime!.minute,
-    );
 
     setState(() => _isPublishing = true);
 
     try {
-      // Obtener datos del perfil del usuario para persistirlos en la reserva
-      String hostName = user.displayName ?? '';
-      String hostPhoto = user.photoURL ?? '';
-      try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (userDoc.exists) {
-          final uData = userDoc.data();
-          if (uData != null) {
-            if (uData['name'] != null && (uData['name'] as String).isNotEmpty) {
-              hostName = uData['name'];
-            }
-            final pList = (uData['photoUrls'] as List?) ?? (uData['photos'] as List?);
-            if (pList != null && pList.isNotEmpty) {
-              final first = pList[0]?.toString() ?? '';
-              if (first.isNotEmpty) hostPhoto = first;
-            }
-          }
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? {};
+      final userName = userData['name'] ?? 'Usuario';
+      final pList = (userData['photoUrls'] as List?) ?? (userData['photos'] as List?);
+      final userPhoto = (pList != null && pList.isNotEmpty) ? pList[0] : '';
+      final birthDate = userData['birthDate'] != null ? (userData['birthDate'] as Timestamp).toDate() : null;
+      int? userAge;
+      if (birthDate != null) {
+        final today = DateTime.now();
+        userAge = today.year - birthDate.year;
+        if (today.month < birthDate.month || (today.month == birthDate.month && today.day < birthDate.day)) {
+          userAge--;
         }
-      } catch (_) {}
-
-      final savedLocation = _selectedLocation;
-      String detectedZone = '';
-      if (savedLocation != null) {
-        final point = LatLng(savedLocation.latitude, savedLocation.longitude);
-        detectedZone = ZoneData.getZoneForPoint(point) ?? '';
       }
 
-      await FirebaseFirestore.instance.collection('reservations').add({
+      final resDateTime = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
+
+      final newDocRef = FirebaseFirestore.instance.collection('reservations').doc();
+      final savedLocation = _selectedLocation;
+      await newDocRef.set({
+        'id': newDocRef.id,
         'userId': user.uid,
-        'userName': hostName.isNotEmpty ? hostName : 'Alguien',
-        'userPhoto': hostPhoto,
-        'link': _linkController.text.trim(),
+        'userName': userName,
+        'userAge': userAge,
+        'userPhoto': userPhoto,
+        'userBio': userData['bio'] ?? '',
+        'userInstagram': userData['instagramHandle'] ?? '',
         'placeName': _placeController.text.trim(),
         'location': savedLocation,
-        'zone': detectedZone,
-        'dateTime': Timestamp.fromDate(dateTime),
         'planType': _selectedPlan,
         'paymentType': _selectedPayment,
         'details': _detailsController.text.trim(),
+        'link': _linkController.text.trim(),
+        'dateTime': Timestamp.fromDate(resDateTime),
         'createdAt': FieldValue.serverTimestamp(),
+        'status': 'active',
       });
 
       if (!mounted) return;
       setState(() => _isPublishing = false);
       if (widget.onPublished != null) {
-        // Limpiar el formulario si se publicó con éxito
         _linkController.clear();
         _detailsController.clear();
         _placeController.clear();
@@ -343,249 +343,295 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Publicar Reserva', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+        title: const Text('Publicar Reserva', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        titleSpacing: 0,
       ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Enlace de confirmación con redirección asistida
+            _buildSectionTitle('1. Enlace de confirmación', 'Pega tu reserva externa o ábrela para reservar asistido.'),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _linkController,
+              keyboardType: TextInputType.url,
+              onChanged: _parseReservationLink,
+              style: const TextStyle(color: AppColors.textPrimary),
+              decoration: _inputDecoration(hint: 'https://www.opentable.com/... o enlace', icon: Icons.link),
+            ),
+            const SizedBox(height: 8),
+            // Accesos directos a plataformas de reserva
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
-                // 1. Enlace de confirmación
-                _buildSectionTitle('1. Enlace de confirmación', 'Valida tu mesa pegando el enlace de Resy u OpenTable.'),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _linkController,
-                  keyboardType: TextInputType.url,
+                _buildExternalChip('🍽️ OpenTable', 'https://www.opentable.com/'),
+                _buildExternalChip('📍 Google Reserve', 'https://www.google.com/maps/reserve/'),
+                _buildExternalChip('🍷 Restorando', 'https://www.restorando.com.co/'),
+              ],
+            ),
+            
+            const SizedBox(height: 28),
+
+            // 2. Lugar de la reserva
+            _buildSectionTitle('2. Lugar de la reserva', 'Busca el restaurante o bar en Bogotá.'),
+            const SizedBox(height: 12),
+            Autocomplete<PlaceAutocomplete>(
+              optionsBuilder: (TextEditingValue textEditingValue) async {
+                if (textEditingValue.text.length < 2) return const Iterable<PlaceAutocomplete>.empty();
+                return await _searchPlaces(textEditingValue.text);
+              },
+              displayStringForOption: (PlaceAutocomplete option) => option.description,
+              onSelected: (PlaceAutocomplete selection) {
+                _placeController.text = selection.description;
+                if (selection.location != null) {
+                  setState(() {
+                    _selectedLocation = selection.location;
+                    _isFetchingPlace = false;
+                  });
+                } else if (selection.placeId.isNotEmpty) {
+                  _getPlaceDetails(selection.placeId);
+                }
+              },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                controller.addListener(() {
+                  if (_placeController.text != controller.text) {
+                    _placeController.text = controller.text;
+                  }
+                });
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
                   style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: _inputDecoration(hint: 'https://', icon: Icons.link),
-                ),
-                
-                const SizedBox(height: 32),
+                  decoration: _inputDecoration(hint: 'Ej: Andrés D.C., Criterión, Cantina...', icon: Icons.place),
+                );
+              },
+            ),
 
-                // 2. Lugar de la reserva
-                _buildSectionTitle('2. Lugar de la reserva', 'Busca el restaurante o bar en Google Maps.'),
-                const SizedBox(height: 12),
-                Autocomplete<PlaceAutocomplete>(
-                  optionsBuilder: (TextEditingValue textEditingValue) async {
-                    if (textEditingValue.text.length < 2) return const Iterable<PlaceAutocomplete>.empty();
-                    return await _searchPlaces(textEditingValue.text);
-                  },
-                  displayStringForOption: (PlaceAutocomplete option) => option.description,
-                  onSelected: (PlaceAutocomplete selection) {
-                    _placeController.text = selection.description;
-                    if (selection.location != null) {
-                      setState(() {
-                        _selectedLocation = selection.location;
-                        _isFetchingPlace = false;
-                      });
-                    } else if (selection.placeId.isNotEmpty) {
-                      _getPlaceDetails(selection.placeId);
-                    }
-                  },
-                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                    controller.addListener(() {
-                      if (_placeController.text != controller.text) {
-                        _placeController.text = controller.text;
-                      }
-                    });
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: _inputDecoration(hint: 'Ej: Andrés D.C. Bogotá', icon: Icons.place),
-                    );
-                  },
-                ),
-
-                if (_isFetchingPlace) ...[
-                  const SizedBox(height: 10),
-                  const Row(
-                    children: [
-                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
-                      SizedBox(width: 8),
-                      Text('Obteniendo coordenadas del lugar...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                ] else if (_selectedLocation != null) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.green.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
-                            style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _useCurrentLocation,
-                    icon: const Icon(Icons.my_location, size: 16, color: AppColors.primary),
-                    label: const Text('Fijar con mi ubicación actual', style: TextStyle(fontSize: 13, color: AppColors.primary)),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ),
+            if (_isFetchingPlace) ...[
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                  SizedBox(width: 8),
+                  Text('Obteniendo coordenadas del lugar...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                 ],
-
-                const SizedBox(height: 32),
-
-                // 3. Fecha y Hora
-                _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es la reserva?'),
-                const SizedBox(height: 12),
-                Row(
+              ),
+            ] else if (_selectedLocation != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: Row(
                   children: [
+                    const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: GestureDetector(
-                        onTap: _pickDate,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(color: AppColors.surface, border: Border.all(color: AppColors.inputBorder), borderRadius: BorderRadius.circular(15)),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.calendar_month, color: AppColors.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                _selectedDate == null ? 'Fecha' : DateFormat('dd MMM yyyy').format(_selectedDate!),
-                                style: TextStyle(color: _selectedDate == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 16),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _pickTime,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(color: AppColors.surface, border: Border.all(color: AppColors.inputBorder), borderRadius: BorderRadius.circular(15)),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.access_time, color: AppColors.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                _selectedTime == null ? 'Hora' : _selectedTime!.format(context),
-                                style: TextStyle(color: _selectedTime == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 16),
-                              ),
-                            ],
-                          ),
-                        ),
+                      child: Text(
+                        'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
+                        style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
                 ),
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _useCurrentLocation,
+                icon: const Icon(Icons.my_location, size: 16, color: AppColors.primary),
+                label: const Text('Fijar con mi ubicación actual en Bogotá', style: TextStyle(fontSize: 13, color: AppColors.primary)),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
+            ],
 
-                const SizedBox(height: 32),
+            const SizedBox(height: 28),
 
-                // 4. Tipo de plan
-                _buildSectionTitle('4. Tipo de plan', '¿Cuál es la vibra del plan?'),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _planTypes.map((type) => _buildChip(
-                    label: type,
-                    isSelected: _selectedPlan == type,
-                    onTap: () => setState(() => _selectedPlan = type),
-                  )).toList(),
-                ),
-
-                const SizedBox(height: 32),
-
-                // 5. Modalidad de pago
-                _buildSectionTitle('5. Modalidad de pago', 'Establece las expectativas desde el principio.'),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _paymentTypes.map((type) => _buildChip(
-                    label: type,
-                    isSelected: _selectedPayment == type,
-                    onTap: () => setState(() => _selectedPayment = type),
-                  )).toList(),
-                ),
-
-                const SizedBox(height: 32),
-
-                // 6. Detalles adicionales
-                _buildSectionTitle('6. Detalles adicionales', 'Añade contexto sobre lo que buscas o el lugar.'),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _detailsController,
-                  maxLines: 4,
-                  style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: _inputDecoration(hint: 'Detalle sobre la reserva...'),
+            // 3. Fecha y Hora
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es tu reserva?'),
+                Row(
+                  children: [
+                    const Text('Bloquear fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: _lockDateTime,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) => setState(() => _lockDateTime = val),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ),
-          
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              decoration: BoxDecoration(
-                color: AppColors.background.withOpacity(0.95),
-                border: const Border(top: BorderSide(color: AppColors.divider)),
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton.icon(
-                  onPressed: _isPublishing ? null : _publishReservation,
-                  icon: _isPublishing 
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Icon(Icons.location_on, color: Colors.white),
-                  label: Text(
-                    _isPublishing ? 'Publicando...' : 'Publicar Reserva en el Mapa de Bogotá',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    elevation: 5,
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _pickDate,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: _lockDateTime ? const Color(0xFFF1F3F6) : AppColors.surface,
+                        border: Border.all(color: AppColors.inputBorder),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calendar_month, color: _lockDateTime ? AppColors.textLight : AppColors.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _selectedDate == null ? 'Fecha' : DateFormat('dd MMM yyyy').format(_selectedDate!),
+                            style: TextStyle(color: _selectedDate == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _pickTime,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: _lockDateTime ? const Color(0xFFF1F3F6) : AppColors.surface,
+                        border: Border.all(color: AppColors.inputBorder),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.access_time, color: _lockDateTime ? AppColors.textLight : AppColors.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _selectedTime == null ? 'Hora' : _selectedTime!.format(context),
+                            style: TextStyle(color: _selectedTime == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 28),
+
+            // 4. Tipo de plan (Café y Brunch separados)
+            _buildSectionTitle('4. Tipo de plan', '¿Cuál es la vibra del encuentro?'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: _planTypes.map((type) => _buildChip(
+                label: type,
+                isSelected: _selectedPlan == type,
+                onTap: () => setState(() => _selectedPlan = type),
+              )).toList(),
+            ),
+
+            const SizedBox(height: 28),
+
+            // 5. Modalidad de pago
+            _buildSectionTitle('5. Modalidad de pago', 'Establece las expectativas con claridad.'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: _paymentTypes.map((type) => _buildChip(
+                label: type,
+                isSelected: _selectedPayment == type,
+                onTap: () => setState(() => _selectedPayment = type),
+              )).toList(),
+            ),
+
+            const SizedBox(height: 28),
+
+            // 6. Punch Line / Detalles adicionales
+            _buildSectionTitle('6. Punch Line & Detalles', 'Ambientación para motivar a acompañarte.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _detailsController,
+              maxLines: 4,
+              style: const TextStyle(color: AppColors.textPrimary),
+              decoration: _inputDecoration(
+                hint: 'Añade una frase ganadora para ambientar el plan (ej. "Tengo reservada la mesa en la terraza con vista para probar cócteles de autor. ¿Quién se anima?")',
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, -3),
+              ),
+            ],
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _isPublishing ? null : _publishReservation,
+              icon: _isPublishing 
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.check_circle_outline, color: Colors.white),
+              label: Text(
+                _isPublishing ? 'Publicando...' : 'Publicar Reserva en el Mapa',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
               ),
             ),
           ),
-        ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildExternalChip(String label, String url) {
+    return ActionChip(
+      visualDensity: VisualDensity.compact,
+      label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
+      backgroundColor: AppColors.primary.withOpacity(0.08),
+      side: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+      onPressed: () => _openExternalPlatform(url),
     );
   }
 
   InputDecoration _inputDecoration({required String hint, IconData? icon}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: AppColors.textLight),
-      prefixIcon: icon != null ? Icon(icon, color: AppColors.textLight) : null,
+      hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
+      prefixIcon: icon != null ? Icon(icon, color: AppColors.textLight, size: 20) : null,
       filled: true,
       fillColor: AppColors.surface,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: AppColors.inputBorder)),
@@ -598,9 +644,9 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-        const SizedBox(height: 4),
-        Text(subtitle, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+        const SizedBox(height: 3),
+        Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
       ],
     );
   }
@@ -609,17 +655,20 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: isSelected ? AppColors.primary : AppColors.divider),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))] : [],
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder, width: isSelected ? 1.5 : 1),
         ),
         child: Text(
           label,
-          style: TextStyle(color: isSelected ? Colors.white : AppColors.textSecondary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 14),
+          style: TextStyle(
+            color: isSelected ? Colors.white : AppColors.textPrimary,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            fontSize: 13,
+          ),
         ),
       ),
     );

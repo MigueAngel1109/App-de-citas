@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
 import 'discover_page.dart';
+import 'citas_page.dart';
 import 'reservas_page.dart';
-import 'invitaciones_page.dart';
 import 'my_profile_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -35,6 +35,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _pages = [
       DiscoverPage(key: _discoverKey),
+      const CitasPage(),
       ReservasPage(
         onPublished: (loc) {
           // Cambiar a la pestaña del mapa tras publicar exitosamente
@@ -46,7 +47,6 @@ class _HomePageState extends State<HomePage> {
           }
         },
       ),
-      const InvitacionesPage(),
       const MyProfilePage(),
     ];
     _listenToUserData();
@@ -165,17 +165,17 @@ class _HomePageState extends State<HomePage> {
                   ),
                   _buildNavItem(
                     index: 1,
+                    label: 'Citas',
+                    inactiveIcon: Icons.favorite_outline,
+                    activeIcon: Icons.favorite,
+                    badgeCount: _pendingInvitationsCount,
+                  ),
+                  _buildNavItem(
+                    index: 2,
                     label: 'Reservas',
                     inactiveIcon: Icons.calendar_month_outlined,
                     activeIcon: Icons.calendar_month_rounded,
                     badgeCount: _pendingRequestsCount,
-                  ),
-                  _buildNavItem(
-                    index: 2,
-                    label: 'Invitaciones',
-                    inactiveIcon: Icons.mark_email_unread_outlined,
-                    activeIcon: Icons.mark_email_read_rounded,
-                    badgeCount: _pendingInvitationsCount,
                   ),
                   _buildProfileNavItem(3, 'Perfil'),
                 ],
