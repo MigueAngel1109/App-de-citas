@@ -32,7 +32,71 @@
 
   <title>app_pruebas</title>
   <link rel="manifest" href="manifest.json">
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCJOqQ6Xedz-lx-KLJJpvOYkwORkNDTGBg&libraries=places"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCJOqQ6Xedz-lx-KLJJpvOYkwORkNDTGBg&v=weekly&libraries=places"></script>
+  <script>
+    window.getGooglePlacePhoto = async function(query, callback) {
+      try {
+        if (!window.google || !window.google.maps) {
+          callback(null);
+          return;
+        }
+
+        // 1. Usar la API moderna de Places (Place.searchByText) recomendada a partir de 2025
+        var PlaceClass = null;
+        if (google.maps.places && google.maps.places.Place) {
+          PlaceClass = google.maps.places.Place;
+        } else if (google.maps.importLibrary) {
+          try {
+            var lib = await google.maps.importLibrary("places");
+            PlaceClass = lib.Place;
+          } catch (_) {}
+        }
+
+        if (PlaceClass && typeof PlaceClass.searchByText === 'function') {
+          var request = {
+            textQuery: query,
+            fields: ['displayName', 'photos'],
+          };
+          var result = await PlaceClass.searchByText(request);
+          var places = result ? result.places : null;
+          if (places && places.length > 0 && places[0].photos && places[0].photos.length > 0) {
+            // getURI retorna la URL directa a lh3.googleusercontent.com con CORS habilitado
+            var photoUri = places[0].photos[0].getURI({ maxWidthPx: 800, maxHeightPx: 600 });
+            if (photoUri) {
+              callback(photoUri);
+              return;
+            }
+          }
+        }
+
+        // 2. Fallback a PlacesService tradicional si Place.searchByText no estuviese disponible
+        if (google.maps.places && google.maps.places.PlacesService) {
+          var dummyDiv = document.createElement('div');
+          var service = new google.maps.places.PlacesService(dummyDiv);
+          service.findPlaceFromQuery({
+            query: query,
+            fields: ['name', 'photos']
+          }, function(results, status) {
+            if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+              var place = results[0];
+              if (place.photos && place.photos.length > 0) {
+                var photoUrl = place.photos[0].getUrl({ maxWidth: 800, maxHeight: 600 });
+                callback(photoUrl);
+                return;
+              }
+            }
+            callback(null);
+          });
+          return;
+        }
+
+        callback(null);
+      } catch (e) {
+        console.warn('Error in getGooglePlacePhoto:', e);
+        callback(null);
+      }
+    };
+  </script>
   <style>
     html, body {
       margin: 0;

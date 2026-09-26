@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/secrets.dart';
+import '../utils/place_photo_service.dart';
 import 'discover_page.dart';
 
 class PlaceAutocomplete {
@@ -45,6 +46,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   bool _isPublishing = false;
   bool _isFetchingPlace = false;
   bool _lockDateTime = false;
+  String? _realPlacePhoto;
 
   // Categorías con Café y Brunch separados
   final List<String> _planTypes = ['Comida/Cena', 'Tragos', 'Café', 'Brunch'];
@@ -56,6 +58,18 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     _detailsController.dispose();
     _placeController.dispose();
     super.dispose();
+  }
+
+  void _lookupPlacePhoto(String placeName) {
+    if (placeName.trim().isEmpty) return;
+    final clean = placeName.split(',')[0].trim();
+    PlacePhotoService.fetchPhotoForPlace(clean).then((photo) {
+      if (photo != null && mounted) {
+        setState(() {
+          _realPlacePhoto = photo;
+        });
+      }
+    });
   }
 
   Future<void> _openExternalPlatform(String url) async {
@@ -85,6 +99,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 .join(' ');
             if (_placeController.text.trim().isEmpty) {
               _placeController.text = '$formatted Bogotá';
+              _lookupPlacePhoto(formatted);
               _searchPlaces('$formatted Bogotá').then((places) {
                 if (places.isNotEmpty && mounted) {
                   _getPlaceDetails(places.first.placeId);
@@ -314,6 +329,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         'details': _detailsController.text.trim(),
         'link': _linkController.text.trim(),
         'dateTime': Timestamp.fromDate(resDateTime),
+        'placePhoto': _realPlacePhoto ?? '',
         'createdAt': FieldValue.serverTimestamp(),
         'status': 'active',
       });
@@ -324,6 +340,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         _linkController.clear();
         _detailsController.clear();
         _placeController.clear();
+        _realPlacePhoto = null;
         _selectedDate = null;
         _selectedTime = null;
         _selectedLocation = null;
@@ -394,6 +411,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               displayStringForOption: (PlaceAutocomplete option) => option.description,
               onSelected: (PlaceAutocomplete selection) {
                 _placeController.text = selection.description;
+                _lookupPlacePhoto(selection.description);
                 if (selection.location != null) {
                   setState(() {
                     _selectedLocation = selection.location;
@@ -414,6 +432,10 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                   focusNode: focusNode,
                   style: const TextStyle(color: AppColors.textPrimary),
                   decoration: _inputDecoration(hint: 'Ej: Andrés D.C., Criterión, Cantina...', icon: Icons.place),
+                  onSubmitted: (val) {
+                    _lookupPlacePhoto(val);
+                    onFieldSubmitted();
+                  },
                 );
               },
             ),
@@ -456,6 +478,48 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 icon: const Icon(Icons.my_location, size: 16, color: AppColors.primary),
                 label: const Text('Fijar con mi ubicación actual en Bogotá', style: TextStyle(fontSize: 13, color: AppColors.primary)),
                 style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              ),
+            ],
+
+            // Vista previa de la foto real del restaurante obtenida de Google Places
+            if (_realPlacePhoto != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Stack(
+                  children: [
+                    Image.network(
+                      _realPlacePhoto!,
+                      height: 125,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.72),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white24, width: 0.8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified, color: Colors.blueAccent, size: 14),
+                            SizedBox(width: 5),
+                            Text(
+                              'Foto oficial de Google Places',
+                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
 

@@ -33,6 +33,7 @@ class _HomePageState extends State<HomePage> {
         return const CitasPage();
       case 2:
         return ReservasPage(
+          isVisible: _selectedIndex == 2,
           onPublished: (loc) {
             setState(() {
               _selectedIndex = 0;

@@ -80,8 +80,7 @@ class MyProfilePage extends StatelessWidget {
           final work = data['work'] ?? '';
           final school = data['school'] ?? '';
 
-          // Redes y multimedia
-          final spotifyTrack = data['spotifyTrack'] ?? '';
+          // Redes
           final instagramHandle = data['instagramHandle'] ?? '';
           final interests = (data['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
@@ -382,31 +381,23 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
 
-                // Redes: Spotify e Instagram
-                if (spotifyTrack.isNotEmpty || instagramHandle.isNotEmpty) ...[
-                  _buildSectionHeader('Música y Redes'),
+                // Redes: Instagram
+                if (instagramHandle.isNotEmpty) ...[
+                  _buildSectionHeader('Redes Sociales'),
                   _buildInfoCard(
-                    Column(
-                      children: [
-                        if (spotifyTrack.isNotEmpty)
-                          _buildListTileInfo(Icons.music_note, 'Himno: $spotifyTrack', iconColor: Colors.green),
-                        if (spotifyTrack.isNotEmpty && instagramHandle.isNotEmpty) const Divider(height: 16),
-                        if (instagramHandle.isNotEmpty)
-                          InkWell(
-                            onTap: () async {
-                              final uri = Uri.parse('https://instagram.com/$instagramHandle');
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(uri, mode: LaunchMode.externalApplication);
-                              }
-                            },
-                            child: _buildListTileInfo(
-                              Icons.camera_alt_outlined,
-                              '@$instagramHandle en Instagram',
-                              iconColor: const Color(0xFFE1306C),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textLight),
-                            ),
-                          ),
-                      ],
+                    InkWell(
+                      onTap: () async {
+                        final uri = Uri.parse('https://instagram.com/$instagramHandle');
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      child: _buildListTileInfo(
+                        Icons.camera_alt_outlined,
+                        '@$instagramHandle en Instagram',
+                        iconColor: const Color(0xFFE1306C),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textLight),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 30),

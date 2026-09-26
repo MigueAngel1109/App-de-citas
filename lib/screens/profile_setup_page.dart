@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import 'home_page.dart';
 import '../widgets/zone_selection_map.dart';
@@ -59,7 +60,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   // -------------------------------------------------------------
   final Set<String> _preferredZones = {};
 
-  String? _relationshipGoal;
+  final Set<String> _relationshipGoals = {};
   final List<Map<String, dynamic>> _relationshipGoalOptions = [
     {'title': 'Relación a largo plazo', 'desc': 'Buscando algo formal y duradero', 'icon': Icons.favorite},
     {'title': 'A largo plazo pero abierto a corto', 'desc': 'Quiero compromiso, pero sin prisa', 'icon': Icons.hourglass_bottom},
@@ -100,8 +101,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Sagitario ♐', 'Capricornio ♑', 'Acuario ♒', 'Piscis ♓'
   ];
 
-  // Campo MBTI agregado (16 personalidades)
-  String? _mbti;
+  // Campo MBTI (permite hasta 2 opciones)
+  final Set<String> _mbti = {};
   final List<String> _mbtiOptions = [
     'INTJ', 'INTP', 'ENTJ', 'ENTP',
     'INFJ', 'INFP', 'ENFJ', 'ENFP',
@@ -112,9 +113,19 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   String? _education;
   final List<String> _educationOptions = ['Secundaria', 'En la universidad', 'Título universitario', 'Posgrado / Maestría', 'Doctorado'];
 
-  String? _loveLanguage;
+  // Lenguaje del amor ampliado (permite hasta 3 opciones)
+  final Set<String> _loveLanguages = {};
   final List<String> _loveLanguageOptions = [
-    'Palabras de afirmación', 'Tiempo de calidad', 'Regalos', 'Actos de servicio', 'Contacto físico'
+    'Palabras de afirmación 💬',
+    'Tiempo de calidad ⏳',
+    'Detalles y regalos 🎁',
+    'Actos de servicio 🤝',
+    'Contacto físico 🫂',
+    'Risas y buen humor 😂',
+    'Escucha y apoyo emocional 👂',
+    'Aventuras y viajes juntos ✈️',
+    'Cocinar y compartir comida 🍳',
+    'Respeto al espacio personal 🧘',
   ];
 
   String? _familyPlans;
@@ -134,7 +145,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   final TextEditingController _bioController = TextEditingController();
   final TextEditingController _workController = TextEditingController();
   final TextEditingController _schoolController = TextEditingController();
-  final TextEditingController _spotifySongController = TextEditingController();
   final TextEditingController _instagramController = TextEditingController();
 
   final Set<String> _interests = {};
@@ -205,8 +215,17 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             _userLocation = data['location'] as GeoPoint;
           }
           // Objetivo y zonas
-          if (data['relationshipGoal'] != null) {
-            _relationshipGoal = data['relationshipGoal'].toString();
+          if (data['relationshipGoals'] != null && data['relationshipGoals'] is List) {
+            _relationshipGoals.clear();
+            _relationshipGoals.addAll((data['relationshipGoals'] as List).map((e) => e.toString()));
+          } else if (data['relationshipGoal'] != null) {
+            _relationshipGoals.clear();
+            final raw = data['relationshipGoal'].toString();
+            if (raw.contains(' • ')) {
+              _relationshipGoals.addAll(raw.split(' • ').map((e) => e.trim()));
+            } else if (raw.isNotEmpty) {
+              _relationshipGoals.add(raw);
+            }
           }
           if (data['preferredZones'] != null && data['preferredZones'] is List) {
             _preferredZones.clear();
@@ -224,9 +243,33 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           // Información personal
           final personal = data['personal'] as Map<String, dynamic>? ?? {};
           _zodiac = personal['zodiac']?.toString();
-          _mbti = personal['mbti']?.toString() ?? data['mbti']?.toString();
+
+          _mbti.clear();
+          final mbtiRaw = personal['mbtis'] ?? personal['mbti'] ?? data['mbti'];
+          if (mbtiRaw is List) {
+            _mbti.addAll(mbtiRaw.map((e) => e.toString()));
+          } else if (mbtiRaw is String && mbtiRaw.isNotEmpty) {
+            if (mbtiRaw.contains(',')) {
+              _mbti.addAll(mbtiRaw.split(',').map((e) => e.trim()));
+            } else {
+              _mbti.add(mbtiRaw.trim());
+            }
+          }
+
           _education = personal['education']?.toString();
-          _loveLanguage = personal['loveLanguage']?.toString();
+
+          _loveLanguages.clear();
+          final loveRaw = personal['loveLanguages'] ?? personal['loveLanguage'];
+          if (loveRaw is List) {
+            _loveLanguages.addAll(loveRaw.map((e) => e.toString()));
+          } else if (loveRaw is String && loveRaw.isNotEmpty) {
+            if (loveRaw.contains(',')) {
+              _loveLanguages.addAll(loveRaw.split(',').map((e) => e.trim()));
+            } else {
+              _loveLanguages.add(loveRaw.trim());
+            }
+          }
+
           _familyPlans = personal['familyPlans']?.toString();
           _communication = personal['communication']?.toString();
           if (personal['languages'] != null && personal['languages'] is List) {
@@ -239,7 +282,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           if (data['bio'] != null) _bioController.text = data['bio'].toString();
           if (data['work'] != null) _workController.text = data['work'].toString();
           if (data['school'] != null) _schoolController.text = data['school'].toString();
-          if (data['spotifyTrack'] != null) _spotifySongController.text = data['spotifyTrack'].toString();
           if (data['instagramHandle'] != null) _instagramController.text = data['instagramHandle'].toString();
 
           // Intereses
@@ -264,7 +306,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     _bioController.dispose();
     _workController.dispose();
     _schoolController.dispose();
-    _spotifySongController.dispose();
     _instagramController.dispose();
     super.dispose();
   }
@@ -312,8 +353,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         _showError('Selecciona a quién te gustaría ver');
         return;
       }
-      if (_relationshipGoal == null) {
-        _showError('Por favor dinos qué buscas en la app');
+      if (_relationshipGoals.isEmpty) {
+        _showError('Por favor selecciona al menos una opción de lo que buscas en la app');
         return;
       }
       if (_preferredZones.isEmpty) {
@@ -406,7 +447,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'isProfileComplete': true,
         'createdAt': FieldValue.serverTimestamp(),
 
-        'relationshipGoal': _relationshipGoal,
+        'relationshipGoal': _relationshipGoals.join(' • '),
+        'relationshipGoals': _relationshipGoals.toList(),
         'preferredZones': _preferredZones.toList(),
 
         'lifestyle': {
@@ -420,9 +462,11 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
         'personal': {
           'zodiac': _zodiac,
-          'mbti': _mbti,
+          'mbti': _mbti.join(', '),
+          'mbtis': _mbti.toList(),
           'education': _education,
-          'loveLanguage': _loveLanguage,
+          'loveLanguage': _loveLanguages.join(', '),
+          'loveLanguages': _loveLanguages.toList(),
           'familyPlans': _familyPlans,
           'communication': _communication,
           'languages': _languages.toList(),
@@ -432,7 +476,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'work': _workController.text.trim(),
         'school': _schoolController.text.trim(),
         'interests': _interests.toList(),
-        'spotifyTrack': _spotifySongController.text.trim(),
         'instagramHandle': _instagramController.text.trim().replaceAll('@', ''),
       };
 
@@ -525,6 +568,119 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             }).toList(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMultiChipSelector({
+    required String title,
+    required List<String> options,
+    required Set<String> selectedSet,
+    required int maxSelection,
+    Widget? subtitleWidget,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              Text(
+                '(${selectedSet.length}/$maxSelection)',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
+              ),
+            ],
+          ),
+          if (subtitleWidget != null) ...[
+            const SizedBox(height: 6),
+            subtitleWidget,
+          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.map((opt) {
+              final isSelected = selectedSet.contains(opt);
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      selectedSet.remove(opt);
+                    } else if (selectedSet.length < maxSelection) {
+                      selectedSet.add(opt);
+                    } else {
+                      _showError('Puedes seleccionar máximo $maxSelection opciones');
+                    }
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : AppColors.inputBorder,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Text(
+                    opt,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMbtiLinkBanner() {
+    return InkWell(
+      onTap: () async {
+        final uri = Uri.parse('https://www.16personalities.com/es/test-de-personalidad');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2E7D32).withOpacity(0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFF2E7D32).withOpacity(0.25)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF2E7D32)),
+            SizedBox(width: 6),
+            Text(
+              '¿No sabes tu tipo? ',
+              style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32), fontWeight: FontWeight.w500),
+            ),
+            Text(
+              'Conoce más y haz el test aquí ↗',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF2E7D32),
+                fontWeight: FontWeight.bold,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -717,21 +873,23 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _buildPhotosGrid(),
               const SizedBox(height: 28),
 
-              // Sección 2: Datos Básicos
+              // Sección 2: Zonas de Preferencia
+              _buildSectionHeader('📍 Zonas de Preferencia'),
+              const SizedBox(height: 8),
+              _buildZoneSelectorTile(),
+              const SizedBox(height: 28),
+
+              // Sección 3: Datos Básicos
               _buildSectionHeader('Datos Básicos'),
               const SizedBox(height: 14),
               _buildTextFieldWithIcon('Nombre completo', _nameController, 'Tu nombre', Icons.person_outline),
               const SizedBox(height: 14),
               _buildTextFieldWithIcon('💼 Ocupación', _workController, 'Ej. Diseñador / Arquitecto / Emprendedor', Icons.work_outline),
               const SizedBox(height: 14),
-              _buildTextFieldWithIcon('🎓 Universidad / Escuela', _schoolController, 'Ej. Universidad de los Andes', Icons.school_outlined),
-              const SizedBox(height: 14),
               _buildTextFieldWithIcon('📸 Usuario de Instagram', _instagramController, 'tu_usuario (sin @)', Icons.camera_alt_outlined),
-              const SizedBox(height: 14),
-              _buildTextFieldWithIcon('🎵 Himno de Spotify', _spotifySongController, 'Ej. Starboy - The Weeknd', Icons.music_note),
               const SizedBox(height: 28),
 
-              // Sección 3: Biografía
+              // Sección 4: Biografía
               _buildSectionHeader('Sobre Ti (Biografía)'),
               const SizedBox(height: 10),
               TextField(
@@ -751,21 +909,54 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               const SizedBox(height: 28),
 
-              // Sección 4: Personalidad MBTI
+              // Sección 5: Personalidad MBTI
               _buildSectionHeader('🧠 Personalidad (MBTI)'),
               const SizedBox(height: 6),
-              const Text('Selecciona tu tipo de personalidad de 16 factores.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              const SizedBox(height: 12),
-              _buildChipSelector('Tipo MBTI', _mbtiOptions, _mbti, (val) => setState(() => _mbti = val)),
+              _buildMbtiLinkBanner(),
+              const SizedBox(height: 10),
+              _buildMultiChipSelector(
+                title: 'Tipo MBTI (Elige hasta 2)',
+                options: _mbtiOptions,
+                selectedSet: _mbti,
+                maxSelection: 2,
+              ),
               const SizedBox(height: 24),
 
-              // Sección 5: Zonas de Preferencia
-              _buildSectionHeader('📍 Zonas de Preferencia'),
-              const SizedBox(height: 8),
-              _buildZoneSelectorTile(),
+              // Sección 6: ¿Qué buscas en Conecta?
+              _buildSectionHeader('🎯 ¿Qué estás buscando en Conecta? (Elige hasta 2)'),
+              const SizedBox(height: 12),
+              ..._relationshipGoalOptions.map((goal) {
+                final title = goal['title'] as String;
+                final isSelected = _relationshipGoals.contains(title);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary.withOpacity(0.06) : AppColors.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder, width: isSelected ? 2 : 1),
+                  ),
+                  child: ListTile(
+                    onTap: () {
+                      setState(() {
+                        if (isSelected) {
+                          _relationshipGoals.remove(title);
+                        } else if (_relationshipGoals.length < 2) {
+                          _relationshipGoals.add(title);
+                        } else {
+                          _showError('Puedes seleccionar máximo 2 opciones');
+                        }
+                      });
+                    },
+                    leading: Icon(goal['icon'] as IconData, color: isSelected ? AppColors.primary : AppColors.icon),
+                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                    subtitle: Text(goal['desc'] as String, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    trailing: isSelected ? const Icon(Icons.check_circle, color: AppColors.primary) : null,
+                  ),
+                );
+              }),
               const SizedBox(height: 28),
 
-              // Sección 6: Intereses y Pasiones
+              // Sección 7: Intereses y Pasiones
               _buildSectionHeader('🌟 Intereses y Pasiones (Hasta 5)'),
               const SizedBox(height: 12),
               _buildMultiSelectChips(
@@ -785,7 +976,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               const SizedBox(height: 28),
 
-              // Sección 7: Estilo de Vida y Hábitos
+              // Sección 8: Estilo de Vida y Hábitos
               _buildSectionHeader('🌱 Estilo de Vida y Hábitos'),
               const SizedBox(height: 14),
               _buildChipSelector('🐾 Mascotas', _petsOptions, _pets, (val) => setState(() => _pets = val)),
@@ -796,11 +987,16 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _buildChipSelector('⏰ Patrón de sueño', _sleepPatternOptions, _sleepPattern, (val) => setState(() => _sleepPattern = val)),
               const SizedBox(height: 24),
 
-              // Sección 8: Más sobre ti
+              // Sección 9: Más sobre ti
               _buildSectionHeader('✨ Más Sobre Ti'),
               const SizedBox(height: 14),
               _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
-              _buildChipSelector('💖 Lenguaje del Amor', _loveLanguageOptions, _loveLanguage, (val) => setState(() => _loveLanguage = val)),
+              _buildMultiChipSelector(
+                title: '💖 Lenguaje del Amor (Elige hasta 3)',
+                options: _loveLanguageOptions,
+                selectedSet: _loveLanguages,
+                maxSelection: 3,
+              ),
               _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
               _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
               _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
@@ -1104,10 +1300,26 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           const SizedBox(height: 16),
           _buildChipSelector('Preferencia de perfiles', _interestedInOptions, _interestedIn, (val) => setState(() => _interestedIn = val)),
           const SizedBox(height: 24),
-          const Text('¿Qué estás buscando en Conecta?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('¿Qué estás buscando en Conecta?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('(${_relationshipGoals.length}/2)', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text('Elige hasta 2 opciones que definan tu objetivo.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           const SizedBox(height: 14),
           ..._relationshipGoalOptions.map((goal) {
-            final isSelected = _relationshipGoal == goal['title'];
+            final title = goal['title'] as String;
+            final isSelected = _relationshipGoals.contains(title);
             return Container(
               margin: const EdgeInsets.only(bottom: 10),
               decoration: BoxDecoration(
@@ -1116,11 +1328,21 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder, width: isSelected ? 2 : 1),
               ),
               child: ListTile(
-                onTap: () => setState(() => _relationshipGoal = goal['title']),
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _relationshipGoals.remove(title);
+                    } else if (_relationshipGoals.length < 2) {
+                      _relationshipGoals.add(title);
+                    } else {
+                      _showError('Puedes seleccionar hasta 2 opciones');
+                    }
+                  });
+                },
                 leading: Icon(goal['icon'] as IconData, color: isSelected ? AppColors.primary : AppColors.icon),
-                title: Text(goal['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
                 subtitle: Text(goal['desc'] as String, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                trailing: isSelected ? const Icon(Icons.check_circle, color: AppColors.primary) : null,
+                trailing: isSelected ? const Icon(Icons.check_circle, color: AppColors.primary) : const Icon(Icons.radio_button_unchecked, color: AppColors.textLight),
               ),
             );
           }),
@@ -1178,9 +1400,20 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           const SizedBox(height: 8),
           const Text('Conoce y hazte conocer con detalles que marcan la diferencia.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
           const SizedBox(height: 24),
-          _buildChipSelector('🧠 Tipo de Personalidad (MBTI)', _mbtiOptions, _mbti, (val) => setState(() => _mbti = val)),
+          _buildMultiChipSelector(
+            title: '🧠 Tipo de Personalidad (MBTI)',
+            options: _mbtiOptions,
+            selectedSet: _mbti,
+            maxSelection: 2,
+            subtitleWidget: _buildMbtiLinkBanner(),
+          ),
           _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
-          _buildChipSelector('💖 Lenguaje del Amor', _loveLanguageOptions, _loveLanguage, (val) => setState(() => _loveLanguage = val)),
+          _buildMultiChipSelector(
+            title: '💖 Lenguaje del Amor',
+            options: _loveLanguageOptions,
+            selectedSet: _loveLanguages,
+            maxSelection: 3,
+          ),
           _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
           _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
           _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
@@ -1234,8 +1467,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           ),
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('💼 Ocupación', _workController, 'Ej. Diseñador / Arquitecto / Emprendedor', Icons.work_outline),
-          const SizedBox(height: 16),
-          _buildTextFieldWithIcon('🎵 Himno de Spotify', _spotifySongController, 'Ej. Bohemian Rhapsody - Queen', Icons.music_note),
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('📸 Usuario de Instagram', _instagramController, 'Ej. tu_usuario (sin @)', Icons.camera_alt_outlined),
           const SizedBox(height: 24),

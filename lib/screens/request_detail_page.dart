@@ -167,6 +167,16 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
       // Si se acepta la solicitud, crear Match en Firestore
       if (newStatus == 'accepted') {
+        // Si era propuesta de reprogramación, actualizar la fecha y hora de la reserva original
+        final propDate = currentData['proposedDateTime'];
+        if (propDate != null && reservationId.isNotEmpty) {
+          try {
+            await FirebaseFirestore.instance.collection('reservations').doc(reservationId).update({
+              'dateTime': propDate,
+            });
+          } catch (_) {}
+        }
+
         final matchRef = FirebaseFirestore.instance.collection('matches').doc();
         await matchRef.set({
           'matchId': matchRef.id,
@@ -728,6 +738,55 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                               ],
                             ),
                           ),
+                          if (data['proposedDateTime'] != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: const Color(0xFFF97316).withOpacity(0.35)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF97316).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.edit_calendar_rounded, size: 18, color: Color(0xFFEA580C)),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'PROPUESTA DE REPROGRAMACIÓN',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFFEA580C),
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${_formatFullDate(data['proposedDateTime'])} • ${_formatTime(data['proposedDateTime'])}',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFF9A3412),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

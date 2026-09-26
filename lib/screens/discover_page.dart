@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -13,7 +14,8 @@ import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
 import '../widgets/map_tutorial_overlay.dart';
-import '../widgets/zone_selection_map.dart';
+import 'publish_reservation_page.dart';
+import '../utils/place_photo_service.dart';
 
 class ReservationMapItem {
   final String id;
@@ -71,6 +73,10 @@ class DiscoverPageState extends State<DiscoverPage> {
   
   Set<Marker> _markers = {};
   List<ReservationMapItem> _reservationsList = [];
+  ReservationMapItem? _selectedReservation;
+  int _selectedReservationIndex = 0;
+  int _panAnimationId = 0;
+  LatLng _lastCameraPosition = _bogotaCenter;
   bool _showPeopleDiscovery = false;
   final Set<String> _preferredZones = {};
   bool _showMapTutorial = false;
@@ -135,9 +141,76 @@ class DiscoverPageState extends State<DiscoverPage> {
 
   void moveToLocation(LatLng position) {
     _currentPosition = position;
+    _lastCameraPosition = position;
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(position, 15.0),
     );
+  }
+
+  Future<void> _smoothPanTo(LatLng target) async {
+    if (_mapController == null) return;
+    final animId = ++_panAnimationId;
+    
+    final start = _lastCameraPosition;
+    final dLat = target.latitude - start.latitude;
+    final dLng = target.longitude - start.longitude;
+    final dist = math.sqrt(dLat * dLat + dLng * dLng);
+
+    // Si la distancia es insignificante, simplemente centrar directamente
+    if (dist < 0.0002) {
+      _lastCameraPosition = target;
+      await _mapController?.animateCamera(CameraUpdate.newLatLng(target));
+      return;
+    }
+
+    // Pasos adaptativos según la distancia para un desplazamiento continuo fluido
+    final int steps = (dist / 0.0035).round().clamp(6, 18);
+    const stepDelay = Duration(milliseconds: 28);
+
+    for (int i = 1; i <= steps; i++) {
+      if (_panAnimationId != animId || !mounted) return;
+      final t = i / steps;
+      // Curva easeInOut cuadrática para suavizar arranque y frenado
+      final curvedT = t < 0.5 ? 2 * t * t : 1 - math.pow(-2 * t + 2, 2) / 2;
+      final curLat = start.latitude + dLat * curvedT;
+      final curLng = start.longitude + dLng * curvedT;
+      
+      await _mapController?.animateCamera(
+        CameraUpdate.newLatLng(LatLng(curLat, curLng)),
+      );
+      await Future.delayed(stepDelay);
+    }
+
+    if (_panAnimationId == animId && mounted) {
+      _lastCameraPosition = target;
+      await _mapController?.animateCamera(CameraUpdate.newLatLng(target));
+    }
+  }
+
+  void _goToReservation(int newIndex) {
+    if (_reservationsList.isEmpty) return;
+
+    int idx = newIndex;
+    if (idx < 0) {
+      idx = _reservationsList.length - 1;
+    } else if (idx >= _reservationsList.length) {
+      idx = 0;
+    }
+
+    setState(() {
+      _selectedReservationIndex = idx;
+      _selectedReservation = _reservationsList[idx];
+    });
+
+    _smoothPanTo(_reservationsList[idx].latLng);
+  }
+
+  void _goToNextReservation() {
+    _goToReservation(_selectedReservationIndex + 1);
+  }
+
+  void _goToPrevReservation() {
+    _goToReservation(_selectedReservationIndex - 1);
   }
 
   LatLng? _parseLocation(dynamic loc, dynamic lat, dynamic lng) {
@@ -170,13 +243,13 @@ class DiscoverPageState extends State<DiscoverPage> {
     if (dateTime == null) return '';
 
     try {
-      return DateFormat('EEEE dd MMM • HH:mm', 'es').format(dateTime);
+      return DateFormat('EEE dd MMM • HH:mm', 'es').format(dateTime);
     } catch (_) {
       final day = dateTime.day.toString().padLeft(2, '0');
       final month = dateTime.month.toString().padLeft(2, '0');
       final hour = dateTime.hour.toString().padLeft(2, '0');
       final minute = dateTime.minute.toString().padLeft(2, '0');
-      return '$day/$month/${dateTime.year} • $hour:$minute';
+      return '$day/$month • $hour:$minute';
     }
   }
 
@@ -208,12 +281,24 @@ class DiscoverPageState extends State<DiscoverPage> {
     return '🍽️';
   }
 
-  String _resolveRestaurantPhoto(Map<String, dynamic> data, String planType, String seed) {
-    if (data['placePhoto'] != null && (data['placePhoto'] as String).isNotEmpty) {
-      return data['placePhoto'];
+  String _resolveRestaurantPhoto(Map<String, dynamic> data, String planType, String seed, {String placeName = '', String docId = ''}) {
+    // 1. Prioridad: Foto oficial verificada o en caché para el lugar (con CORS habilitado)
+    if (placeName.isNotEmpty) {
+      final realPhoto = PlacePhotoService.getVerifiedOrCachedPhoto(placeName);
+      if (realPhoto != null && realPhoto.isNotEmpty) {
+        return realPhoto;
+      }
+      if (docId.isNotEmpty) {
+        PlacePhotoService.resolveAndPersistPlacePhoto(docId, placeName);
+      }
     }
-    if (data['restaurantPhoto'] != null && (data['restaurantPhoto'] as String).isNotEmpty) {
-      return data['restaurantPhoto'];
+
+    // 2. Foto guardada previamente en Firestore (solo si no es una URL con problema CORS de maps.googleapis.com)
+    final savedPhoto = (data['placePhoto'] as String?) ?? (data['restaurantPhoto'] as String?);
+    if (savedPhoto != null && savedPhoto.isNotEmpty) {
+      if (!savedPhoto.contains('maps.googleapis.com')) {
+        return savedPhoto;
+      }
     }
     
     final plan = planType.toLowerCase();
@@ -406,44 +491,45 @@ class DiscoverPageState extends State<DiscoverPage> {
             }
           }
 
-          final restaurantPhoto = _resolveRestaurantPhoto(data, planType, doc.id);
+          final restaurantPhoto = _resolveRestaurantPhoto(data, planType, doc.id, placeName: placeName, docId: doc.id);
 
-          newReservationsList.add(
-            ReservationMapItem(
-              id: doc.id,
-              data: data,
-              latLng: latLng,
-              placeName: placeName.contains(',') ? placeName.split(',')[0].trim() : placeName,
-              planType: planType,
-              paymentType: paymentType,
-              details: details,
-              link: link,
-              formattedDate: dateStr,
-              locationText: locationArea,
-              hostUserId: userId ?? '',
-              hostName: userName,
-              hostAge: hostAge,
-              hostBio: hostBio,
-              hostPhoto: photoUrl,
-              hostInstagram: hostInstagram,
-              restaurantPhoto: restaurantPhoto,
-            ),
+          final resItem = ReservationMapItem(
+            id: doc.id,
+            data: data,
+            latLng: latLng,
+            placeName: placeName.contains(',') ? placeName.split(',')[0].trim() : placeName,
+            planType: planType,
+            paymentType: paymentType,
+            details: details,
+            link: link,
+            formattedDate: dateStr,
+            locationText: locationArea,
+            hostUserId: userId ?? '',
+            hostName: userName,
+            hostAge: hostAge,
+            hostBio: hostBio,
+            hostPhoto: photoUrl,
+            hostInstagram: hostInstagram,
+            restaurantPhoto: restaurantPhoto,
           );
+          newReservationsList.add(resItem);
 
           newMarkers.add(
             Marker(
               markerId: MarkerId(doc.id),
               position: latLng,
               icon: icon,
-              infoWindow: InfoWindow(
-                title: '$userName • $placeName',
-                snippet: '$planType • $dateStr',
-                onTap: () {
-                  _openReservationCarousel(initialDocId: doc.id);
-                },
-              ),
+              infoWindow: InfoWindow.noText,
               onTap: () {
-                _openReservationCarousel(initialDocId: doc.id);
+                final idx = _reservationsList.indexWhere((r) => r.id == doc.id);
+                if (idx != -1) {
+                  _goToReservation(idx);
+                } else {
+                  setState(() {
+                    _selectedReservation = resItem;
+                  });
+                  _smoothPanTo(latLng);
+                }
               },
             ),
           );
@@ -456,6 +542,20 @@ class DiscoverPageState extends State<DiscoverPage> {
         setState(() {
           _markers = newMarkers;
           _reservationsList = newReservationsList;
+          if (_selectedReservation != null) {
+            final foundIdx = newReservationsList.indexWhere((r) => r.id == _selectedReservation!.id);
+            if (foundIdx != -1) {
+              _selectedReservationIndex = foundIdx;
+              _selectedReservation = newReservationsList[foundIdx];
+            } else if (newReservationsList.isNotEmpty) {
+              _selectedReservationIndex = 0;
+              _selectedReservation = newReservationsList.first;
+            }
+          } else if (newReservationsList.isNotEmpty) {
+            // Fija y visible siempre en el mapa desde el inicio para pasar entre citas directamente
+            _selectedReservationIndex = 0;
+            _selectedReservation = newReservationsList.first;
+          }
         });
       }
     }, onError: (e) {
@@ -463,192 +563,138 @@ class DiscoverPageState extends State<DiscoverPage> {
     });
   }
 
-  void _openReservationCarousel({String? initialDocId}) {
-    if (_reservationsList.isEmpty) return;
-
-    int initialIndex = 0;
-    if (initialDocId != null) {
-      final idx = _reservationsList.indexWhere((r) => r.id == initialDocId);
-      if (idx != -1) initialIndex = idx;
-    }
-
-    // Centrar suavemente el mapa en la reserva inicial
-    final initialItem = _reservationsList[initialIndex];
-    _mapController?.animateCamera(CameraUpdate.newLatLng(initialItem.latLng));
-
+  void _openReservationDetails(ReservationMapItem res) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
-        final PageController pageController = PageController(initialPage: initialIndex);
-        int currentIndex = initialIndex;
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final total = _reservationsList.length;
-            final current = _reservationsList[currentIndex];
-
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(28),
-                  topRight: Radius.circular(28),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 24,
-                    offset: Offset(0, -4),
-                  ),
-                ],
+        final screenHeight = MediaQuery.of(context).size.height;
+        return SafeArea(
+          bottom: true,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: screenHeight * 0.88,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(28),
+                topRight: Radius.circular(28),
               ),
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Tirador superior de arrastre
-                  Center(
-                    child: Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.withOpacity(0.35),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 24,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Tirador superior de arrastre
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                ),
+                const SizedBox(height: 12),
 
-                  // Cabecera: Badge "RESERVA X DE N" a la izquierda y paginación a la derecha
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Badge: [ 🍸 RESERVA 1 DE 8 ]
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF2F6),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_getPlanIcon(current.planType), style: const TextStyle(fontSize: 12)),
-                            const SizedBox(width: 6),
-                            Text(
-                              'RESERVA ${currentIndex + 1} DE $total',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF2C3437),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Paginación: < [— · ·] >
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Flecha izquierda
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                            splashRadius: 16,
-                            icon: Icon(
-                              Icons.chevron_left_rounded,
-                              size: 24,
-                              color: currentIndex > 0 ? const Color(0xFF1E242B) : Colors.grey.shade300,
-                            ),
-                            onPressed: currentIndex > 0
-                                ? () {
-                                    pageController.previousPage(
-                                      duration: const Duration(milliseconds: 280),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                : null,
+                // Cabecera: Badges de categoría y pago a la izquierda y botón cerrar (X) a la derecha
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
                           ),
-                          const SizedBox(width: 4),
-
-                          // Puntos animados
-                          Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: List.generate(
-                              total > 7 ? 7 : total,
-                              (dotIdx) {
-                                final bool isActive = (dotIdx == currentIndex) || (dotIdx == 6 && currentIndex >= 6);
-                                return AnimatedContainer(
-                                  duration: const Duration(milliseconds: 220),
-                                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                                  width: isActive ? 16 : 5,
-                                  height: 5,
-                                  decoration: BoxDecoration(
-                                    color: isActive ? const Color(0xFF1A1F24) : Colors.grey.shade300,
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                );
-                              },
-                            ),
+                            children: [
+                              Text(_getPlanIcon(res.planType), style: const TextStyle(fontSize: 12)),
+                              const SizedBox(width: 5),
+                              Text(
+                                res.planType.toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF1E293B),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-
-                          // Flecha derecha
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                            splashRadius: 16,
-                            icon: Icon(
-                              Icons.chevron_right_rounded,
-                              size: 24,
-                              color: currentIndex < total - 1 ? const Color(0xFF1E242B) : Colors.grey.shade300,
+                        ),
+                        if (res.paymentType.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
                             ),
-                            onPressed: currentIndex < total - 1
-                                ? () {
-                                    pageController.nextPage(
-                                      duration: const Duration(milliseconds: 280),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                : null,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  res.paymentType.toLowerCase().contains('invito')
+                                      ? Icons.card_giftcard_rounded
+                                      : Icons.payments_outlined,
+                                  size: 13,
+                                  color: const Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  res.paymentType,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // Carrusel deslizable PageView
-                  SizedBox(
-                    height: 385,
-                    child: PageView.builder(
-                      controller: pageController,
-                      itemCount: total,
-                      onPageChanged: (newIdx) {
-                        setModalState(() {
-                          currentIndex = newIdx;
-                        });
-                        final item = _reservationsList[newIdx];
-                        // Sincronizar el mapa en vivo hacia la reserva deslizada
-                        _mapController?.animateCamera(
-                          CameraUpdate.newLatLng(item.latLng),
-                        );
-                      },
-                      itemBuilder: (context, idx) {
-                        final res = _reservationsList[idx];
-                        return _buildReservationCardContent(context, res);
-                      },
+                      ],
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
+                    GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF1F5F9),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, size: 17, color: Color(0xFF475569)),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Contenido completo de la cita (scrollable si es necesario)
+                Flexible(
+                  child: _buildReservationCardContent(context, res),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -665,12 +711,12 @@ class DiscoverPageState extends State<DiscoverPage> {
         children: [
           // 1. Imagen Banner del Restaurante / Lugar
           ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
                 SizedBox(
                   width: double.infinity,
-                  height: 175,
+                  height: 160,
                   child: Image.network(
                     res.restaurantPhoto,
                     fit: BoxFit.cover,
@@ -683,16 +729,20 @@ class DiscoverPageState extends State<DiscoverPage> {
                         ),
                       );
                     },
-                    errorBuilder: (_, __, ___) => Container(
-                      color: const Color(0xFF262C36),
-                      child: const Center(
-                        child: Icon(Icons.restaurant, color: Colors.white70, size: 40),
+                    errorBuilder: (_, __, ___) => Image.network(
+                      _resolveRestaurantPhoto({}, res.planType, res.id),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: const Color(0xFF262C36),
+                        child: const Center(
+                          child: Icon(Icons.restaurant, color: Colors.white70, size: 40),
+                        ),
                       ),
                     ),
                   ),
                 ),
 
-                // Degradado inferior
+                // Degradado inferior sutil
                 Positioned.fill(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -700,9 +750,9 @@ class DiscoverPageState extends State<DiscoverPage> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.black.withOpacity(0.2),
+                          Colors.black.withOpacity(0.1),
                           Colors.transparent,
-                          Colors.black.withOpacity(0.55),
+                          Colors.black.withOpacity(0.5),
                         ],
                       ),
                     ),
@@ -725,7 +775,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.search, size: 13, color: Colors.white),
+                          Icon(Icons.search, size: 12, color: Colors.white),
                           SizedBox(width: 4),
                           Text(
                             'Toca para ampliar',
@@ -737,25 +787,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
 
-                // Pill Superior Derecha: Tipo de Plan (Ej: "Cena & Tragos 🍸")
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.65),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white24, width: 0.8),
-                    ),
-                    child: Text(
-                      '${res.planType} ${_getPlanIcon(res.planType)}',
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-
-                // Pill Inferior Izquierda: Instagram tag o enlace
+                // Pill Inferior Izquierda: Instagram tag o enlace de reserva
                 if (res.hostInstagram.isNotEmpty)
                   Positioned(
                     bottom: 10,
@@ -768,7 +800,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFF833AB4), Color(0xFFFD1D1D), Color(0xFFFCB045)],
@@ -840,27 +872,54 @@ class DiscoverPageState extends State<DiscoverPage> {
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF161A1D),
-              letterSpacing: -0.3,
+              color: Color(0xFF0F172A),
+              letterSpacing: -0.4,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
 
-          // 3. Ubicación y Fecha / Hora
-          Row(
+          // 3. Ubicación y Fecha / Hora en Chips elegantes
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              const Icon(Icons.place, size: 15, color: Color(0xFF6B7280)),
-              const SizedBox(width: 4),
-              Text(
-                res.locationText,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w600),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.place_rounded, size: 14, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      res.locationText,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 14),
-              const Icon(Icons.access_time_filled, size: 15, color: Color(0xFF6B7280)),
-              const SizedBox(width: 4),
-              Text(
-                res.formattedDate,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w600),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.access_time_filled_rounded, size: 14, color: Color(0xFF64748B)),
+                    const SizedBox(width: 4),
+                    Text(
+                      res.formattedDate,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -871,8 +930,8 @@ class DiscoverPageState extends State<DiscoverPage> {
           InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () {
-              Navigator.pop(context);
               if (isMine) {
+                Navigator.pop(context);
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -898,9 +957,9 @@ class DiscoverPageState extends State<DiscoverPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF6F8FA),
+                color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Row(
                 children: [
@@ -915,42 +974,51 @@ class DiscoverPageState extends State<DiscoverPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        RichText(
-                          text: TextSpan(
-                            children: [
-                              const TextSpan(
-                                text: 'ANFITRIÓN: ',
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              margin: const EdgeInsets.only(right: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE2E8F0),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'ANFITRIÓN',
                                 style: TextStyle(
-                                  color: Color(0xFF6B7280),
-                                  fontSize: 11,
+                                  color: Color(0xFF475569),
+                                  fontSize: 9.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.5,
                                 ),
                               ),
-                              TextSpan(
-                                text: res.hostAge != null ? '${res.hostName}, ${res.hostAge}' : res.hostName,
+                            ),
+                            Flexible(
+                              child: Text(
+                                res.hostAge != null ? '${res.hostName}, ${res.hostAge}' : res.hostName,
                                 style: const TextStyle(
-                                  color: Color(0xFF111827),
+                                  color: Color(0xFF0F172A),
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 3),
                         Text(
                           res.hostBio.isNotEmpty
                               ? res.hostBio
                               : (res.details.isNotEmpty ? res.details : 'Toca para ver el perfil completo.'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF9CA3AF)),
+                  const Icon(Icons.chevron_right_rounded, size: 20, color: Color(0xFF94A3B8)),
                 ],
               ),
             ),
@@ -958,11 +1026,11 @@ class DiscoverPageState extends State<DiscoverPage> {
 
           const SizedBox(height: 14),
 
-          // 5. Botón Principal: "Solicitar unirme a [Nombre]"
+          // 5. Botón Principal: "Solicitar unirme a la cita"
           if (isMine)
             SizedBox(
               width: double.infinity,
-              height: 50,
+              height: 48,
               child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
@@ -996,15 +1064,15 @@ class DiscoverPageState extends State<DiscoverPage> {
                   : null,
               builder: (context, reqSnap) {
                 final hasRequested = reqSnap.hasData && reqSnap.data!.docs.isNotEmpty;
-                final reqStatus = hasRequested
-                    ? (reqSnap.data!.docs.first.data() as Map<String, dynamic>)['status'] ?? 'pending'
-                    : null;
+                final reqDocData = hasRequested ? (reqSnap.data!.docs.first.data() as Map<String, dynamic>) : null;
+                final reqStatus = reqDocData?['status'] ?? 'pending';
+                final isReschedule = reqDocData?['requestType'] == 'reschedule';
 
                 if (hasRequested) {
                   final isAccepted = reqStatus == 'accepted';
                   return Container(
                     width: double.infinity,
-                    height: 50,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: isAccepted ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
                       borderRadius: BorderRadius.circular(16),
@@ -1018,13 +1086,19 @@ class DiscoverPageState extends State<DiscoverPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          isAccepted ? Icons.check_circle : Icons.hourglass_top,
+                          isAccepted
+                              ? Icons.check_circle
+                              : (isReschedule ? Icons.event_repeat_rounded : Icons.hourglass_top),
                           color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
                           size: 18,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          isAccepted ? '¡Solicitud Aceptada! (Hay Match 🎉)' : 'Solicitud enviada (Pendiente ⏳)',
+                          isAccepted
+                              ? '¡Solicitud Aceptada! (Hay Match 🎉)'
+                              : (isReschedule
+                                  ? 'Propuesta enviada (Pendiente 🗓️)'
+                                  : 'Solicitud enviada (Pendiente ⏳)'),
                           style: TextStyle(
                             color: isAccepted ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
                             fontWeight: FontWeight.w800,
@@ -1036,29 +1110,61 @@ class DiscoverPageState extends State<DiscoverPage> {
                   );
                 }
 
-                return SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _openRequestJoinDialog(res.id, res.data, res.hostUserId, res.hostName, res.placeName);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16181F),
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
-                    child: Text(
-                      'Solicitar unirme a ${res.hostName}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.1,
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _openRequestJoinDialog(res.id, res.data, res.hostUserId, res.hostName, res.placeName);
+                        },
+                        icon: const Icon(Icons.send_rounded, size: 16, color: Colors.white),
+                        label: const Text(
+                          'Solicitar unirme a la cita',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF16181F),
+                          elevation: 1,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _openRescheduleDialog(res.id, res.data, res.hostUserId, res.hostName, res.placeName);
+                        },
+                        icon: const Icon(Icons.edit_calendar_rounded, size: 17, color: Color(0xFF334155)),
+                        label: const Text(
+                          'Proponer reprogramar cita',
+                          style: TextStyle(
+                            color: Color(0xFF334155),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.2),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -1257,6 +1363,349 @@ class DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
+  void _openRescheduleDialog(
+    String reservationId,
+    Map<String, dynamic> reservationData,
+    String hostUserId,
+    String hostUserName,
+    String placeName,
+  ) {
+    // Tomar fecha actual de la reserva como referencia inicial
+    DateTime initialDateTime = DateTime.now().add(const Duration(days: 1));
+    final rawDate = reservationData['dateTime'];
+    if (rawDate is Timestamp) {
+      initialDateTime = rawDate.toDate();
+    } else if (rawDate is DateTime) {
+      initialDateTime = rawDate;
+    } else if (rawDate is String) {
+      initialDateTime = DateTime.tryParse(rawDate) ?? initialDateTime;
+    }
+
+    DateTime selectedDate = initialDateTime;
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(initialDateTime);
+    final messageController = TextEditingController();
+    bool isSending = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final dateFormatted = DateFormat('EEEE dd MMMM', 'es').format(selectedDate);
+            final timeFormatted = '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}';
+
+            return Container(
+              padding: EdgeInsets.only(
+                top: 20,
+                left: 20,
+                right: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              decoration: const BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.edit_calendar_rounded, size: 22, color: AppColors.textPrimary),
+                            SizedBox(width: 8),
+                            Text(
+                              'Proponer Reprogramar',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: AppColors.divider),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Sugiere una nueva fecha u hora para la cita en $placeName con $hostUserName.',
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Selector de Nueva Fecha y Hora
+                    const Text(
+                      'Nueva fecha y hora propuesta',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        // Selector de Fecha
+                        Expanded(
+                          flex: 3,
+                          child: InkWell(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate.isBefore(DateTime.now()) ? DateTime.now() : selectedDate,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                builder: (ctx, child) {
+                                  return Theme(
+                                    data: Theme.of(ctx).copyWith(
+                                      colorScheme: const ColorScheme.light(
+                                        primary: AppColors.primary,
+                                        onPrimary: Colors.white,
+                                        onSurface: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    child: child!,
+                                  );
+                                },
+                              );
+                              if (picked != null) {
+                                setModalState(() => selectedDate = picked);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: AppColors.inputBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_today_rounded, size: 16, color: AppColors.primary),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      dateFormatted,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Selector de Hora
+                        Expanded(
+                          flex: 2,
+                          child: InkWell(
+                            onTap: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: selectedTime,
+                                builder: (ctx, child) {
+                                  return Theme(
+                                    data: Theme.of(ctx).copyWith(
+                                      colorScheme: const ColorScheme.light(
+                                        primary: AppColors.primary,
+                                        onPrimary: Colors.white,
+                                        onSurface: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    child: child!,
+                                  );
+                                },
+                              );
+                              if (picked != null) {
+                                setModalState(() => selectedTime = picked);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: AppColors.inputBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.access_time_rounded, size: 16, color: AppColors.primary),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      timeFormatted,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Mensaje o motivo (opcional)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: messageController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        hintText: 'Ej. Me encantaría ir, ¿te quedaría bien este nuevo horario?',
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: isSending
+                            ? null
+                            : () async {
+                                setModalState(() => isSending = true);
+                                try {
+                                  final user = FirebaseAuth.instance.currentUser;
+                                  if (user == null) throw Exception('Debes iniciar sesión');
+
+                                  String requesterName = user.displayName ?? 'Usuario';
+                                  String requesterPhoto = user.photoURL ?? '';
+
+                                  try {
+                                    final uDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+                                    if (uDoc.exists) {
+                                      final uData = uDoc.data();
+                                      if (uData != null) {
+                                        if (uData['name'] != null && (uData['name'] as String).isNotEmpty) {
+                                          requesterName = uData['name'];
+                                        }
+                                        final pList = (uData['photoUrls'] as List?) ?? (uData['photos'] as List?);
+                                        if (pList != null && pList.isNotEmpty) {
+                                          final first = pList[0]?.toString() ?? '';
+                                          if (first.isNotEmpty) requesterPhoto = first;
+                                        }
+                                      }
+                                    }
+                                  } catch (_) {}
+
+                                  final proposedDt = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    selectedTime.hour,
+                                    selectedTime.minute,
+                                  );
+
+                                  final msg = messageController.text.trim();
+                                  final now = Timestamp.now();
+                                  final proposedStr = '${DateFormat('EEE dd MMM', 'es').format(proposedDt)} a las $timeFormatted';
+
+                                  await FirebaseFirestore.instance.collection('reservation_requests').add({
+                                    'reservationId': reservationId,
+                                    'hostUserId': hostUserId,
+                                    'requesterUserId': user.uid,
+                                    'requesterName': requesterName,
+                                    'requesterPhoto': requesterPhoto,
+                                    'placeName': placeName,
+                                    'dateTime': reservationData['dateTime'],
+                                    'proposedDateTime': Timestamp.fromDate(proposedDt),
+                                    'planType': reservationData['planType'] ?? 'Comida',
+                                    'paymentType': reservationData['paymentType'] ?? '',
+                                    'status': 'pending',
+                                    'requestType': 'reschedule',
+                                    'message': msg.isNotEmpty ? msg : 'Propuesta de reprogramación para $proposedStr',
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'interactionHistory': [
+                                      {
+                                        'type': 'created',
+                                        'title': 'Reserva publicada',
+                                        'description': '$hostUserName publicó esta reserva en el mapa.',
+                                        'timestamp': reservationData['createdAt'] ?? now,
+                                      },
+                                      {
+                                        'type': 'reschedule_proposed',
+                                        'title': 'Propuesta de reprogramación',
+                                        'description': msg.isNotEmpty
+                                            ? '$requesterName propuso reprogramar para $proposedStr: "$msg"'
+                                            : '$requesterName propuso reprogramar la cita para $proposedStr.',
+                                        'timestamp': now,
+                                      },
+                                    ],
+                                  });
+
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('¡Propuesta enviada a $hostUserName para el $proposedStr! 🗓️✨'),
+                                        backgroundColor: AppColors.primary,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  setModalState(() => isSending = false);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+                                    );
+                                  }
+                                }
+                              },
+                        icon: isSending
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                        label: const Text(
+                          'Enviar Propuesta',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF16181F),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          elevation: 2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   Set<Marker> get _combinedMarkers {
     return Set<Marker>.from(_markers);
@@ -1273,8 +1722,8 @@ class DiscoverPageState extends State<DiscoverPage> {
           Polygon(
             polygonId: PolygonId(zoneName),
             points: entry.value,
-            fillColor: AppColors.primary.withOpacity(0.18),
-            strokeColor: AppColors.primary.withOpacity(0.75),
+            fillColor: Colors.transparent,
+            strokeColor: Colors.black,
             strokeWidth: 2,
             consumeTapEvents: false,
           ),
@@ -1296,7 +1745,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     },
     {
       "elementType": "labels.text.fill",
-      "stylers": [{ "color": "#7a7f87" }]
+      "stylers": [{ "color": "#5b616c" }]
     },
     {
       "elementType": "labels.text.stroke",
@@ -1320,8 +1769,9 @@ class DiscoverPageState extends State<DiscoverPage> {
       "stylers": [{ "visibility": "off" }]
     },
     {
-      "featureType": "poi.business",
-      "stylers": [{ "visibility": "off" }]
+      "featureType": "poi.park",
+      "elementType": "geometry",
+      "stylers": [{ "color": "#f5f6f8" }]
     },
     {
       "featureType": "road",
@@ -1348,14 +1798,24 @@ class DiscoverPageState extends State<DiscoverPage> {
     },
     {
       "featureType": "landscape",
-      "stylers": [
-        { "saturation": -100 },
-        { "lightness": 12 }
-      ]
+      "elementType": "geometry",
+      "stylers": [{ "color": "#cdd1d8" }]
     },
     {
       "featureType": "landscape.man_made",
-      "stylers": [{ "visibility": "off" }]
+      "elementType": "geometry",
+      "stylers": [
+        { "color": "#cdd1d8" },
+        { "visibility": "on" }
+      ]
+    },
+    {
+      "featureType": "landscape.natural",
+      "elementType": "geometry",
+      "stylers": [
+        { "color": "#f5f6f8" },
+        { "visibility": "on" }
+      ]
     },
     {
       "featureType": "landscape.natural.terrain",
@@ -1387,7 +1847,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             child: Offstage(
               offstage: _showPeopleDiscovery,
               child: GoogleMap(
-                initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 14.0),
+                initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 11.8),
                 myLocationEnabled: false,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
@@ -1403,6 +1863,9 @@ class DiscoverPageState extends State<DiscoverPage> {
                 markers: _combinedMarkers,
                 circles: const {},
                 polygons: _buildPolygons(),
+                onCameraMove: (CameraPosition pos) {
+                  _lastCameraPosition = pos.target;
+                },
                 onMapCreated: (GoogleMapController controller) {
                   _mapController = controller;
                 },
@@ -1503,104 +1966,327 @@ class DiscoverPageState extends State<DiscoverPage> {
             ),
           ),
 
-          // Barra de filtro de zonas y botón de centrado (visible cuando se está en la vista de Mapa)
+          // Controles flotantes en la vista de Mapa
           if (!_showPeopleDiscovery) ...[
-            Positioned(
-              top: topOffset + 64,
-              left: 20,
-              right: 76,
-              child: GestureDetector(
-                onTap: () async {
-                  final result = await Navigator.push<Set<String>>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ZoneSelectionMap(
-                        initialSelectedZones: _preferredZones,
-                      ),
-                    ),
-                  );
-                  if (result != null) {
-                    setState(() {
-                      _preferredZones.clear();
-                      _preferredZones.addAll(result);
-                    });
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user != null) {
-                      FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-                        'preferredZones': result.toList(),
-                      }).catchError((_) {});
-                    }
-                    _listenToReservations();
-                  }
-                },
-                child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.location_on, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _preferredZones.isEmpty
-                              ? 'Toca para elegir tus zonas'
-                              : (_preferredZones.length == 1
-                                  ? 'Zona: ${_preferredZones.first}'
-                                  : '${_preferredZones.length} zonas activas'),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+            // Botón flotante "Hacer reserva" ubicado al lado derecho encima del carrusel de citas
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              bottom: _selectedReservation != null ? 236 : 102,
+              right: 16,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PublishReservationPage(
+                          onPublished: (loc) {
+                            if (loc != null) {
+                              moveToLocation(LatLng(loc.latitude, loc.longitude));
+                            }
+                            _listenToReservations();
+                          },
                         ),
                       ),
-                      const Icon(Icons.tune, size: 16, color: AppColors.textSecondary),
-                    ],
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(25),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(25),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.35), width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.14),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_circle, color: AppColors.primary, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Hacer reserva',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-            Positioned(
-              top: topOffset + 64,
-              right: 20,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.95),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  icon: const Icon(Icons.my_location, color: AppColors.primary, size: 20),
-                  tooltip: 'Mi ubicación',
-                  onPressed: () {
-                    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition, 14.0));
+
+            // Ventana flotante de la reserva seleccionada (arriba de la barra del menú central)
+            if (_selectedReservation != null)
+              Positioned(
+                bottom: 102,
+                left: 16,
+                right: 16,
+                child: GestureDetector(
+                  onHorizontalDragEnd: (details) {
+                    if (details.primaryVelocity != null) {
+                      if (details.primaryVelocity! < -100) {
+                        _goToNextReservation();
+                      } else if (details.primaryVelocity! > 100) {
+                        _goToPrevReservation();
+                      }
+                    }
                   },
+                  onTap: () {
+                    _openReservationDetails(_selectedReservation!);
+                  },
+                  child: Container(
+                    height: 122,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.18),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Row(
+                        children: [
+                          // Foto del restaurante/lugar
+                          SizedBox(
+                            width: 105,
+                            height: 122,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.network(
+                                  _selectedReservation!.restaurantPhoto,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Image.network(
+                                    _resolveRestaurantPhoto({}, _selectedReservation!.planType, _selectedReservation!.id),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: const Color(0xFF2C3437),
+                                      child: const Icon(Icons.restaurant, color: Colors.white70, size: 30),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 8,
+                                  left: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.65),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      _getPlanIcon(_selectedReservation!.planType),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Contenido info reserva
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  // Fila 1: Nombre del lugar + Flechas entre citas + Botón cerrar (X)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _selectedReservation!.placeName,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      // Flechas para desplazarse entre citas
+                                      if (_reservationsList.length > 1) ...[
+                                        Container(
+                                          height: 27,
+                                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF1F3F5),
+                                            borderRadius: BorderRadius.circular(14),
+                                            border: Border.all(color: Colors.black.withOpacity(0.06)),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              GestureDetector(
+                                                onTap: _goToPrevReservation,
+                                                child: const Padding(
+                                                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                                                  child: Icon(Icons.chevron_left_rounded, size: 19, color: Color(0xFF1E242B)),
+                                                ),
+                                              ),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 2),
+                                                child: Text(
+                                                  '${_selectedReservationIndex + 1}/${_reservationsList.length}',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF2C3437),
+                                                  ),
+                                                ),
+                                              ),
+                                              GestureDetector(
+                                                onTap: _goToNextReservation,
+                                                child: const Padding(
+                                                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                                                  child: Icon(Icons.chevron_right_rounded, size: 19, color: Color(0xFF1E242B)),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      // Botón cerrar (X)
+                                      GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            _selectedReservation = null;
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.withOpacity(0.15),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(Icons.close, size: 15, color: AppColors.textSecondary),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  // Fila 2: Plan + Fecha y Hora completa (ocupa todo el ancho, nunca se corta con ...)
+                                  Row(
+                                    children: [
+                                      Icon(Icons.access_time_rounded, size: 13, color: AppColors.primary.withOpacity(0.9)),
+                                      const SizedBox(width: 5),
+                                      Expanded(
+                                        child: RichText(
+                                          maxLines: 1,
+                                          overflow: TextOverflow.visible,
+                                          text: TextSpan(
+                                            children: [
+                                              TextSpan(
+                                                text: _selectedReservation!.planType,
+                                                style: const TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Color(0xFF1E242B),
+                                                ),
+                                              ),
+                                              const TextSpan(
+                                                text: ' • ',
+                                                style: TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.textSecondary,
+                                                ),
+                                              ),
+                                              TextSpan(
+                                                text: _selectedReservation!.formattedDate,
+                                                style: const TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Color(0xFF4B5563),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  // Fila inferior: Host avatar, nombre y botón "Ver cita"
+                                  Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 13,
+                                        backgroundImage: _selectedReservation!.hostPhoto.isNotEmpty
+                                            ? NetworkImage(_selectedReservation!.hostPhoto)
+                                            : null,
+                                        backgroundColor: Colors.grey[300],
+                                        child: _selectedReservation!.hostPhoto.isEmpty
+                                            ? const Icon(Icons.person, size: 14, color: Colors.white)
+                                            : null,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _selectedReservation!.hostName,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      GestureDetector(
+                                        onTap: () {
+                                          _openReservationDetails(_selectedReservation!);
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(14),
+                                          ),
+                                          child: const Text(
+                                            'Ver cita',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
           ],
 
           // Onboarding / Tutorial estático del mapa

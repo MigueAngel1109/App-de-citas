@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
+import '../utils/place_photo_service.dart';
 import 'publish_reservation_page.dart';
 import 'request_detail_page.dart';
 import '../widgets/user_profile_modal.dart';
 
 class ReservasPage extends StatefulWidget {
   final Function(GeoPoint?)? onPublished;
+  final bool isVisible;
 
-  const ReservasPage({super.key, this.onPublished});
+  const ReservasPage({super.key, this.onPublished, this.isVisible = true});
 
   @override
   State<ReservasPage> createState() => _ReservasPageState();
@@ -429,35 +431,37 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 78.0),
-        child: FloatingActionButton.extended(
-          backgroundColor: AppColors.primary,
-          elevation: 6,
-          icon: const Icon(Icons.add_circle, color: Colors.white),
-          label: const Text('Publicar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => PublishReservationPage(
-                  onPublished: (loc) {
-                    Navigator.pop(context);
-                    widget.onPublished?.call(loc);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('¡Reserva publicada con éxito! Ya puedes verla en Mis Reservas y en el mapa 🎉'),
-                        backgroundColor: AppColors.primary,
-                        behavior: SnackBarBehavior.floating,
+      floatingActionButton: !widget.isVisible
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 78.0),
+              child: FloatingActionButton.extended(
+                backgroundColor: AppColors.primary,
+                elevation: 6,
+                icon: const Icon(Icons.add_circle, color: Colors.white),
+                label: const Text('Publicar Reserva', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PublishReservationPage(
+                        onPublished: (loc) {
+                          Navigator.pop(context);
+                          widget.onPublished?.call(loc);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('¡Reserva publicada con éxito! Ya puedes verla en Mis Reservas y en el mapa 🎉'),
+                              backgroundColor: AppColors.primary,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
-        ),
-      ),
+            ),
     );
   }
 
@@ -760,7 +764,10 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
                 final paymentType = data['paymentType'] ?? '';
                 final dateTimeStr = _formatDateTime(data['dateTime']);
                 final details = data['details'] ?? '';
-                final photoUrl = (data['placePhoto'] ?? data['restaurantPhoto'] ?? '').toString();
+                final verified = PlacePhotoService.getVerifiedOrCachedPhoto(placeName);
+                final photoUrl = (verified != null && verified.isNotEmpty)
+                    ? verified
+                    : ((data['placePhoto'] ?? data['restaurantPhoto'] ?? '').toString());
                 final count = requestCountByResId[doc.id] ?? 0;
 
                 return Container(
