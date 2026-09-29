@@ -50,6 +50,10 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   String? _linkParseMessage;
   bool _lockDateTime = false;
   String? _realPlacePhoto;
+  bool _hasDetectedData = false;
+  bool _showManualEntry = false;
+
+  bool get _showDetails => _hasDetectedData || _showManualEntry || _placeController.text.trim().isNotEmpty;
 
   // Categorías con Café y Brunch separados
   final List<String> _planTypes = ['Comida/Cena', 'Tragos', 'Café', 'Brunch'];
@@ -202,6 +206,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         setState(() {
           _linkParseMessage = null;
           _isParsingLink = false;
+          _hasDetectedData = false;
         });
       }
       return;
@@ -227,6 +232,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           if (parsedDate != null && !_lockDateTime) _selectedDate = parsedDate;
           if (parsedTime != null && !_lockDateTime) _selectedTime = parsedTime;
           _linkParseMessage = '✨ Detectado desde el texto';
+          _hasDetectedData = true;
         });
       }
       return;
@@ -489,6 +495,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         setState(() {
           _isParsingLink = false;
           if (updatedAny) {
+            _hasDetectedData = true;
             final pName = platformDetected ?? 'el enlace';
             final parts = <String>[];
             if (detectedPlace != null) parts.add('Lugar');
@@ -743,6 +750,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         _realPlacePhoto = null;
         _initDefaultDateTime();
         _selectedLocation = null;
+        _hasDetectedData = false;
+        _showManualEntry = false;
         widget.onPublished!(savedLocation);
       } else {
         Navigator.of(context).pushReplacement(
@@ -835,235 +844,251 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               ],
             ),
             
-            const SizedBox(height: 28),
-
-            // 2. Lugar de la reserva
-            _buildSectionTitle('2. Lugar de la reserva', 'Busca el restaurante o bar en Bogotá.'),
-            const SizedBox(height: 12),
-            Autocomplete<PlaceAutocomplete>(
-              optionsBuilder: (TextEditingValue textEditingValue) async {
-                if (textEditingValue.text.length < 2) return const Iterable<PlaceAutocomplete>.empty();
-                return await _searchPlaces(textEditingValue.text);
-              },
-              displayStringForOption: (PlaceAutocomplete option) => option.description,
-              onSelected: (PlaceAutocomplete selection) {
-                _placeController.text = selection.description;
-                if (_autoCompleteTextController != null) {
-                  _autoCompleteTextController!.text = selection.description;
-                }
-                _lookupPlacePhoto(selection.description);
-                if (selection.location != null) {
-                  setState(() {
-                    _selectedLocation = selection.location;
-                    _isFetchingPlace = false;
-                  });
-                } else if (selection.placeId.isNotEmpty) {
-                  _getPlaceDetails(selection.placeId);
-                }
-              },
-              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                _autoCompleteTextController = controller;
-                if (_placeController.text.isNotEmpty && controller.text.isEmpty) {
-                  controller.text = _placeController.text;
-                }
-                controller.addListener(() {
-                  if (_placeController.text != controller.text) {
-                    setState(() {
-                      _placeController.text = controller.text;
-                    });
-                  }
-                });
-                return TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: _inputDecoration(hint: 'Ej: Andrés D.C., Criterión, Cantina...', icon: Icons.place),
-                  onSubmitted: (val) {
-                    _lookupPlacePhoto(val);
-                    onFieldSubmitted();
-                  },
-                );
-              },
-            ),
-
-            if (_isFetchingPlace) ...[
-              const SizedBox(height: 10),
-              const Row(
-                children: [
-                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
-                  SizedBox(width: 8),
-                  Text('Obteniendo coordenadas del lugar...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                ],
-              ),
-            ] else if (_selectedLocation != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+            if (!_showDetails) ...[
+              const SizedBox(height: 18),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _showManualEntry = true),
+                  icon: const Icon(Icons.edit_calendar_outlined, size: 18, color: AppColors.primary),
+                  label: const Text(
+                    '¿Prefieres ingresar lugar, fecha y hora manualmente?',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.primary),
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
-                        style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ] else ...[
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _useCurrentLocation,
-                icon: const Icon(Icons.my_location, size: 16, color: AppColors.primary),
-                label: const Text('Fijar con mi ubicación actual en Bogotá', style: TextStyle(fontSize: 13, color: AppColors.primary)),
-                style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
               ),
             ],
 
-            // Vista previa de la foto real del restaurante obtenida de Google Places
-            if (_realPlacePhoto != null) ...[
+            if (_showDetails) ...[
+              const SizedBox(height: 28),
+
+              // 2. Lugar de la reserva
+              _buildSectionTitle('2. Lugar de la reserva', 'Busca el restaurante o bar en Bogotá.'),
               const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Stack(
+              Autocomplete<PlaceAutocomplete>(
+                optionsBuilder: (TextEditingValue textEditingValue) async {
+                  if (textEditingValue.text.length < 2) return const Iterable<PlaceAutocomplete>.empty();
+                  return await _searchPlaces(textEditingValue.text);
+                },
+                displayStringForOption: (PlaceAutocomplete option) => option.description,
+                onSelected: (PlaceAutocomplete selection) {
+                  _placeController.text = selection.description;
+                  if (_autoCompleteTextController != null) {
+                    _autoCompleteTextController!.text = selection.description;
+                  }
+                  _lookupPlacePhoto(selection.description);
+                  if (selection.location != null) {
+                    setState(() {
+                      _selectedLocation = selection.location;
+                      _isFetchingPlace = false;
+                    });
+                  } else if (selection.placeId.isNotEmpty) {
+                    _getPlaceDetails(selection.placeId);
+                  }
+                },
+                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                  _autoCompleteTextController = controller;
+                  if (_placeController.text.isNotEmpty && controller.text.isEmpty) {
+                    controller.text = _placeController.text;
+                  }
+                  controller.addListener(() {
+                    if (_placeController.text != controller.text) {
+                      setState(() {
+                        _placeController.text = controller.text;
+                      });
+                    }
+                  });
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: _inputDecoration(hint: 'Ej: Andrés D.C., Criterión, Cantina...', icon: Icons.place),
+                    onSubmitted: (val) {
+                      _lookupPlacePhoto(val);
+                      onFieldSubmitted();
+                    },
+                  );
+                },
+              ),
+
+              if (_isFetchingPlace) ...[
+                const SizedBox(height: 10),
+                const Row(
                   children: [
-                    Image.network(
-                      _realPlacePhoto!,
-                      height: 125,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.72),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white24, width: 0.8),
+                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                    SizedBox(width: 8),
+                    Text('Obteniendo coordenadas del lugar...', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ] else if (_selectedLocation != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.green.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
+                          style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
                         ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _useCurrentLocation,
+                  icon: const Icon(Icons.my_location, size: 16, color: AppColors.primary),
+                  label: const Text('Fijar con mi ubicación actual en Bogotá', style: TextStyle(fontSize: 13, color: AppColors.primary)),
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                ),
+              ],
+
+              // Vista previa de la foto real del restaurante obtenida de Google Places
+              if (_realPlacePhoto != null) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    children: [
+                      Image.network(
+                        _realPlacePhoto!,
+                        height: 125,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                      Positioned(
+                        bottom: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.72),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white24, width: 0.8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.verified, color: Colors.blueAccent, size: 14),
+                              SizedBox(width: 5),
+                              Text(
+                                'Foto oficial de Google Places',
+                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // 3. Fecha y Hora (Visible una vez detectados o solicitados)
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es tu reserva?'),
+                  Row(
+                    children: [
+                      const Text('Conservar fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      const SizedBox(width: 4),
+                      Transform.scale(
+                        scale: 0.75,
+                        child: Switch(
+                          value: _lockDateTime,
+                          activeColor: AppColors.primary,
+                          onChanged: (val) => setState(() => _lockDateTime = val),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _pickDate,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border.all(color: AppColors.inputBorder),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: Row(
                           children: [
-                            Icon(Icons.verified, color: Colors.blueAccent, size: 14),
-                            SizedBox(width: 5),
-                            Text(
-                              'Foto oficial de Google Places',
-                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            const Icon(Icons.calendar_month, color: AppColors.primary, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _formatDisplayDate(_selectedDate),
+                                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _pickTime,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border.all(color: AppColors.inputBorder),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.access_time, color: AppColors.primary, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _selectedTime == null ? 'Seleccionar Hora' : _selectedTime!.format(context),
+                                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Atajos rápidos para fecha y hora
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _buildQuickDateChip('Hoy', DateTime.now()),
+                  _buildQuickDateChip('Mañana', DateTime.now().add(const Duration(days: 1))),
+                  _buildQuickDateChip('Viernes', _getNextWeekday(DateTime.friday)),
+                  _buildQuickDateChip('Sábado', _getNextWeekday(DateTime.saturday)),
+                  _buildQuickTimeChip('7:00 PM', const TimeOfDay(hour: 19, minute: 0)),
+                  _buildQuickTimeChip('8:00 PM', const TimeOfDay(hour: 20, minute: 0)),
+                  _buildQuickTimeChip('9:00 PM', const TimeOfDay(hour: 21, minute: 0)),
+                ],
               ),
             ],
-
-            // 3. Fecha y Hora (Siempre visible con selección rápida)
-            const SizedBox(height: 28),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es tu reserva?'),
-                Row(
-                  children: [
-                    const Text('Conservar fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                    const SizedBox(width: 4),
-                    Transform.scale(
-                      scale: 0.75,
-                      child: Switch(
-                        value: _lockDateTime,
-                        activeColor: AppColors.primary,
-                        onChanged: (val) => setState(() => _lockDateTime = val),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _pickDate,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        border: Border.all(color: AppColors.inputBorder),
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_month, color: AppColors.primary, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _formatDisplayDate(_selectedDate),
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _pickTime,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        border: Border.all(color: AppColors.inputBorder),
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.access_time, color: AppColors.primary, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _selectedTime == null ? 'Seleccionar Hora' : _selectedTime!.format(context),
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            // Atajos rápidos para fecha y hora
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _buildQuickDateChip('Hoy', DateTime.now()),
-                _buildQuickDateChip('Mañana', DateTime.now().add(const Duration(days: 1))),
-                _buildQuickDateChip('Viernes', _getNextWeekday(DateTime.friday)),
-                _buildQuickDateChip('Sábado', _getNextWeekday(DateTime.saturday)),
-                _buildQuickTimeChip('7:00 PM', const TimeOfDay(hour: 19, minute: 0)),
-                _buildQuickTimeChip('8:00 PM', const TimeOfDay(hour: 20, minute: 0)),
-                _buildQuickTimeChip('9:00 PM', const TimeOfDay(hour: 21, minute: 0)),
-              ],
-            ),
 
             const SizedBox(height: 28),
 
