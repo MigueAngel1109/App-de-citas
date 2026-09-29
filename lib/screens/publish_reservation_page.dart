@@ -35,6 +35,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   final TextEditingController _linkController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
   final TextEditingController _placeController = TextEditingController();
+  TextEditingController? _autoCompleteTextController;
   
   String _selectedPlan = 'Comida/Cena';
   String _selectedPayment = 'Cuentas separadas';
@@ -45,12 +46,40 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
   bool _isPublishing = false;
   bool _isFetchingPlace = false;
+  bool _isParsingLink = false;
+  String? _linkParseMessage;
   bool _lockDateTime = false;
   String? _realPlacePhoto;
 
   // Categorías con Café y Brunch separados
   final List<String> _planTypes = ['Comida/Cena', 'Tragos', 'Café', 'Brunch'];
   final List<String> _paymentTypes = ['Yo invito', 'Cuentas separadas', 'Abierto a discutir'];
+
+  @override
+  void initState() {
+    super.initState();
+    _initDefaultDateTime();
+  }
+
+  void _initDefaultDateTime() {
+    final now = DateTime.now();
+    if (now.hour >= 21) {
+      _selectedDate = DateTime(now.year, now.month, now.day + 1);
+      _selectedTime = const TimeOfDay(hour: 20, minute: 0);
+    } else {
+      _selectedDate = DateTime(now.year, now.month, now.day);
+      final nextHour = (now.hour + 2).clamp(12, 21);
+      _selectedTime = TimeOfDay(hour: nextHour, minute: 0);
+    }
+  }
+
+  DateTime _getNextWeekday(int weekday) {
+    DateTime d = DateTime.now();
+    while (d.weekday != weekday) {
+      d = d.add(const Duration(days: 1));
+    }
+    return d;
+  }
 
   @override
   void dispose() {
@@ -79,37 +108,407 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     }
   }
 
-  void _parseReservationLink(String url) {
-    final clean = url.trim().toLowerCase();
-    if (clean.contains('opentable.com')) {
-      try {
-        final uri = Uri.parse(url.trim());
-        final segments = uri.pathSegments;
+  DateTime? _parseSpanishDate(String text) {
+    final clean = text.toLowerCase().replaceAll('.', '').replaceAll(',', ' ').trim();
+
+    // 1. ISO YYYY-MM-DD
+    final isoMatch = RegExp(r'\b(202[4-9])-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])\b').firstMatch(clean);
+    if (isoMatch != null) {
+      final y = int.parse(isoMatch.group(1)!);
+      final m = int.parse(isoMatch.group(2)!);
+      final d = int.parse(isoMatch.group(3)!);
+      return DateTime(y, m, d);
+    }
+
+    // 2. DD/MM/YYYY or DD-MM-YYYY
+    final dmyMatch = RegExp(r'\b([0-2]?[0-9]|3[01])[/\-](0?[1-9]|1[0-2])[/\-](202[4-9])\b').firstMatch(clean);
+    if (dmyMatch != null) {
+      final d = int.parse(dmyMatch.group(1)!);
+      final m = int.parse(dmyMatch.group(2)!);
+      final y = int.parse(dmyMatch.group(3)!);
+      return DateTime(y, m, d);
+    }
+
+    // 3. DD [de] mes [de] [YYYY] ej: "02 oct", "2 de octubre", "vie, 02 oct."
+    const monthMap = {
+      'ene': 1, 'enero': 1, 'jan': 1, 'january': 1,
+      'feb': 2, 'febrero': 2, 'february': 2,
+      'mar': 3, 'marzo': 3, 'march': 3,
+      'abr': 4, 'abril': 4, 'apr': 4, 'april': 4,
+      'may': 5, 'mayo': 5,
+      'jun': 6, 'junio': 6, 'june': 6,
+      'jul': 7, 'julio': 7, 'july': 7,
+      'ago': 8, 'agosto': 8, 'aug': 8, 'august': 8,
+      'sep': 9, 'sept': 9, 'septiembre': 9, 'september': 9,
+      'oct': 10, 'octubre': 10, 'october': 10,
+      'nov': 11, 'noviembre': 11, 'november': 11,
+      'dic': 12, 'diciembre': 12, 'dec': 12, 'december': 12,
+    };
+
+    final monthNames = monthMap.keys.join('|');
+    final textDateMatch = RegExp(
+      '(\\b[0-2]?[0-9]|3[01])\\s*(?:de)?\\s*($monthNames)(?:\\s*(?:de)?\\s*(202[4-9]))?',
+      caseSensitive: false,
+    ).firstMatch(clean);
+
+    if (textDateMatch != null) {
+      final d = int.parse(textDateMatch.group(1)!);
+      final mName = textDateMatch.group(2)!.toLowerCase();
+      final m = monthMap[mName]!;
+      final yStr = textDateMatch.group(3);
+      final currentYear = DateTime.now().year;
+      final y = yStr != null ? int.parse(yStr) : (m < DateTime.now().month ? currentYear + 1 : currentYear);
+      return DateTime(y, m, d);
+    }
+
+    return null;
+  }
+
+  TimeOfDay? _parseTimeString(String timeStr) {
+    try {
+      final clean = timeStr.trim().toLowerCase();
+      final match = RegExp(r'(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?').firstMatch(clean);
+      if (match != null) {
+        int h = int.parse(match.group(1)!);
+        final m = int.parse(match.group(2)!);
+        final ampm = match.group(3);
+        if (ampm == 'pm' && h < 12) h += 12;
+        if (ampm == 'am' && h == 12) h = 0;
+        return TimeOfDay(hour: h, minute: m);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  String _cleanSlug(String raw) {
+    var s = Uri.decodeComponent(raw).trim();
+    // Reemplazar guiones y guiones bajos por espacios
+    s = s.replaceAll(RegExp(r'[-_+]+'), ' ');
+    // Quitar extensiones comunes
+    s = s.replaceAll(RegExp(r'\.(html|php|aspx|json)$', caseSensitive: false), '');
+    // Capitalizar palabras
+    return s.split(' ').where((w) => w.isNotEmpty).map((w) {
+      if (w.length <= 2 && (w.toLowerCase() == 'de' || w.toLowerCase() == 'la' || w.toLowerCase() == 'el' || w.toLowerCase() == 'y')) {
+        return w.toLowerCase();
+      }
+      return '${w[0].toUpperCase()}${w.substring(1)}';
+    }).join(' ');
+  }
+
+  Future<void> _parseReservationLink(String rawUrl) async {
+    var trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _linkParseMessage = null;
+          _isParsingLink = false;
+        });
+      }
+      return;
+    }
+
+    // Extraer URL si está dentro de un texto de WhatsApp/correo
+    final urlRegex = RegExp(r'https?://[^\s]+');
+    final urlMatch = urlRegex.firstMatch(trimmed);
+    if (urlMatch != null) {
+      trimmed = urlMatch.group(0)!;
+    } else if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      if (trimmed.contains('.') && !trimmed.contains(' ')) {
+        trimmed = 'https://$trimmed';
+      }
+    }
+
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      // Si el usuario pegó directamente un texto de confirmación sin URL
+      final parsedDate = _parseSpanishDate(rawUrl);
+      final parsedTime = _parseTimeString(rawUrl);
+      if (parsedDate != null || parsedTime != null) {
+        setState(() {
+          if (parsedDate != null && !_lockDateTime) _selectedDate = parsedDate;
+          if (parsedTime != null && !_lockDateTime) _selectedTime = parsedTime;
+          _linkParseMessage = '✨ Detectado desde el texto';
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _isParsingLink = true;
+      _linkParseMessage = 'Analizando reserva externa...';
+    });
+
+    try {
+      final uri = Uri.tryParse(trimmed);
+      if (uri == null) {
+        setState(() => _isParsingLink = false);
+        return;
+      }
+
+      String? detectedPlace;
+      DateTime? detectedDate;
+      TimeOfDay? detectedTime;
+      String? platformDetected;
+
+      final host = uri.host.toLowerCase();
+      final segments = uri.pathSegments;
+
+      const stopWords = {
+        'restaurante', 'restaurantes', 'reserva', 'reservas', 'branch', 'payment', 
+        'bogota', 'colombia', 'm', 'menu', 'r'
+      };
+
+      // ==========================================
+      // 1. APPARTA (apparta.com / apparta.co)
+      // ==========================================
+      if (host.contains('apparta')) {
+        platformDetected = 'Apparta';
+        for (var i = 0; i < segments.length; i++) {
+          final seg = segments[i].toLowerCase();
+          if (!stopWords.contains(seg) && seg.isNotEmpty) {
+            detectedPlace = _cleanSlug(segments[i]);
+            break;
+          }
+        }
+      }
+      // ==========================================
+      // 2. MESA 24/7 (mesa247.co / mesa247.pe / mesa247.com)
+      // ==========================================
+      else if (host.contains('mesa247') || host.contains('mesa 24/7')) {
+        platformDetected = 'Mesa 24/7';
+        for (var i = segments.length - 1; i >= 0; i--) {
+          final seg = segments[i].toLowerCase();
+          if (!stopWords.contains(seg) && seg.isNotEmpty) {
+            detectedPlace = _cleanSlug(segments[i]);
+            break;
+          }
+        }
+      }
+      // ==========================================
+      // 3. CLUVI (menu.cluvi.co / cluvi.com)
+      // ==========================================
+      else if (host.contains('cluvi')) {
+        platformDetected = 'Cluvi';
+        for (var i = segments.length - 1; i >= 0; i--) {
+          final seg = segments[i].toLowerCase();
+          if (!stopWords.contains(seg) && seg.isNotEmpty) {
+            detectedPlace = _cleanSlug(segments[i]);
+            break;
+          }
+        }
+      }
+      // ==========================================
+      // 4. JUSTO (getjusto.com / justo.com)
+      // ==========================================
+      else if (host.contains('justo') || host.contains('getjusto')) {
+        platformDetected = 'Justo';
+        final subparts = host.split('.');
+        if (subparts.length > 2 && subparts[0] != 'www' && subparts[0] != 'app') {
+          detectedPlace = _cleanSlug(subparts[0]);
+        }
+        if (detectedPlace == null) {
+          for (var i = 0; i < segments.length; i++) {
+            final seg = segments[i].toLowerCase();
+            if (!stopWords.contains(seg) && seg.isNotEmpty) {
+              detectedPlace = _cleanSlug(segments[i]);
+              break;
+            }
+          }
+        }
+      }
+      // ==========================================
+      // 5. DEGUSTA (degustaco.com / degusta.com.co / degusta.com)
+      // ==========================================
+      else if (host.contains('degusta')) {
+        platformDetected = 'Degusta';
+        for (var i = segments.length - 1; i >= 0; i--) {
+          final seg = segments[i].toLowerCase();
+          if (!stopWords.contains(seg) && seg.isNotEmpty) {
+            detectedPlace = _cleanSlug(segments[i]);
+            break;
+          }
+        }
+      }
+      // ==========================================
+      // 6. OPENTABLE
+      // ==========================================
+      else if (host.contains('opentable')) {
+        platformDetected = 'OpenTable';
         if (segments.isNotEmpty) {
           String candidate = segments.last;
           if (candidate.isEmpty && segments.length > 1) {
             candidate = segments[segments.length - 2];
           }
           if (candidate != 'r' && candidate.isNotEmpty) {
-            final formatted = candidate
-                .replaceAll('-', ' ')
-                .replaceAll('_', ' ')
-                .split(' ')
-                .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '')
-                .join(' ');
-            if (_placeController.text.trim().isEmpty) {
-              _placeController.text = '$formatted Bogotá';
-              _lookupPlacePhoto(formatted);
-              _searchPlaces('$formatted Bogotá').then((places) {
-                if (places.isNotEmpty && mounted) {
-                  _getPlaceDetails(places.first.placeId);
-                }
-              });
-            }
+            detectedPlace = _cleanSlug(candidate);
           }
         }
-      } catch (e) {
-        debugPrint('Error parsing OpenTable url: $e');
+      }
+
+      // Extraer parámetros query estándar (date, time, datetime, hour, etc.)
+      final queryParams = uri.queryParameters;
+      for (final entry in queryParams.entries) {
+        final k = entry.key.toLowerCase();
+        final v = entry.value;
+
+        // Fecha / Hora combinada
+        if ((k == 'datetime' || k == 'dt' || k == 'reservationdatetime') && detectedDate == null) {
+          final parsed = DateTime.tryParse(v);
+          if (parsed != null) {
+            detectedDate = parsed;
+            detectedTime = TimeOfDay(hour: parsed.hour, minute: parsed.minute);
+          }
+        }
+
+        // Fecha individual
+        if ((k == 'date' || k == 'd' || k == 'fecha' || k == 'dia') && detectedDate == null) {
+          final parsed = _parseSpanishDate(v) ?? DateTime.tryParse(v);
+          if (parsed != null) {
+            detectedDate = parsed;
+          }
+        }
+
+        // Hora individual
+        if ((k == 'time' || k == 't' || k == 'hora') && detectedTime == null) {
+          detectedTime = _parseTimeString(v);
+        }
+
+        // Lugar en query si no se detectó antes
+        if ((k == 'place' || k == 'restaurant' || k == 'restaurante' || k == 'name') && detectedPlace == null) {
+          detectedPlace = _cleanSlug(v);
+        }
+      }
+
+      // Inspección de contenido web
+      if (detectedDate == null || detectedTime == null || detectedPlace == null) {
+        // A. Intento directo nativo (no Web o endpoints sin bloqueo)
+        if (!kIsWeb) {
+          try {
+            final res = await http.get(uri).timeout(const Duration(seconds: 4));
+            if (res.statusCode == 200) {
+              final htmlBody = utf8.decode(res.bodyBytes, allowMalformed: true);
+
+              // Extraer Next.js __NEXT_DATA__
+              final nextDataMatch = RegExp(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', dotAll: true).firstMatch(htmlBody);
+              if (nextDataMatch != null) {
+                try {
+                  final jsonStr = nextDataMatch.group(1);
+                  if (jsonStr != null) {
+                    final data = json.decode(jsonStr);
+                    final pageProps = data['props']?['pageProps'];
+                    final prePurchase = pageProps?['initialPrePurchaseData'];
+                    if (prePurchase != null) {
+                      final resDateStr = prePurchase['meta_reservation_date'] as String?;
+                      if (resDateStr != null && detectedDate == null) {
+                        detectedDate = DateTime.tryParse(resDateStr);
+                      }
+                      final resTimeStr = prePurchase['meta_reservation_start_time'] as String?;
+                      if (resTimeStr != null && detectedTime == null) {
+                        detectedTime = _parseTimeString(resTimeStr);
+                      }
+                      final estData = pageProps?['establishmentData'] ?? pageProps?['establishment'];
+                      if (estData != null && estData['name'] != null && (detectedPlace == null || detectedPlace.isEmpty)) {
+                        detectedPlace = estData['name'].toString().trim();
+                      }
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              detectedDate ??= _parseSpanishDate(htmlBody);
+              detectedTime ??= _parseTimeString(htmlBody);
+            }
+          } catch (_) {}
+        }
+
+        // B. Fallback universal con proxy CORS (para Web y scraping asistido)
+        if (detectedDate == null || detectedTime == null || detectedPlace == null) {
+          try {
+            final jinaUri = Uri.parse('https://r.jina.ai/$trimmed');
+            final jinaRes = await http.get(jinaUri).timeout(const Duration(seconds: 8));
+            if (jinaRes.statusCode == 200) {
+              final text = jinaRes.body;
+              final lines = text.split('\n');
+              for (final line in lines) {
+                final trimmedLine = line.trim();
+                if (trimmedLine.isEmpty) continue;
+                detectedDate ??= _parseSpanishDate(trimmedLine);
+                detectedTime ??= _parseTimeString(trimmedLine);
+              }
+
+              if (detectedPlace == null) {
+                final titleMatch = RegExp(r'Title:\s*(.+?)(?:\s+reservas|\s+menu|\s*\||\n|$)', caseSensitive: false).firstMatch(text);
+                if (titleMatch != null) {
+                  final candidate = titleMatch.group(1)?.trim();
+                  if (candidate != null && candidate.isNotEmpty && candidate.length < 50) {
+                    detectedPlace = candidate;
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Aplicar información detectada a la interfaz
+      bool updatedAny = false;
+
+      if (detectedPlace != null && detectedPlace.trim().isNotEmpty) {
+        final cleanPlace = detectedPlace.trim();
+        _placeController.text = cleanPlace;
+        if (_autoCompleteTextController != null) {
+          _autoCompleteTextController!.text = cleanPlace;
+        }
+        _lookupPlacePhoto(cleanPlace);
+        _searchPlaces('$cleanPlace Bogotá').then((places) {
+          if (places.isNotEmpty && mounted) {
+            if (places.first.location != null) {
+              setState(() {
+                _selectedLocation = places.first.location;
+                _isFetchingPlace = false;
+              });
+            } else {
+              _getPlaceDetails(places.first.placeId);
+            }
+          }
+        });
+        updatedAny = true;
+      }
+
+      if (!_lockDateTime) {
+        if (detectedDate != null) {
+          _selectedDate = detectedDate;
+          updatedAny = true;
+        }
+        if (detectedTime != null) {
+          _selectedTime = detectedTime;
+          updatedAny = true;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isParsingLink = false;
+          if (updatedAny) {
+            final pName = platformDetected ?? 'el enlace';
+            final parts = <String>[];
+            if (detectedPlace != null) parts.add('Lugar');
+            if (detectedDate != null) parts.add('Fecha');
+            if (detectedTime != null) parts.add('Hora');
+            _linkParseMessage = '✨ Detectado desde $pName: ${parts.join(', ')}';
+          } else {
+            _linkParseMessage = platformDetected != null 
+                ? 'Plataforma $platformDetected identificada. Puedes ajustar los datos.' 
+                : null;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error parsing link: $e');
+      if (mounted) {
+        setState(() {
+          _isParsingLink = false;
+          _linkParseMessage = null;
+        });
       }
     }
   }
@@ -241,12 +640,14 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   }
 
   Future<void> _pickDate() async {
-    if (_lockDateTime) return;
+    final now = DateTime.now();
+    final baseDate = _selectedDate ?? now;
+    final initial = baseDate.isBefore(now) ? now : baseDate;
     final date = await showDatePicker(
       context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
     );
     if (date != null) {
       setState(() => _selectedDate = date);
@@ -254,7 +655,6 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   }
 
   Future<void> _pickTime() async {
-    if (_lockDateTime) return;
     final time = await showTimePicker(
       context: context,
       initialTime: _selectedTime ?? TimeOfDay.now(),
@@ -341,8 +741,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         _detailsController.clear();
         _placeController.clear();
         _realPlacePhoto = null;
-        _selectedDate = null;
-        _selectedTime = null;
+        _initDefaultDateTime();
         _selectedLocation = null;
         widget.onPublished!(savedLocation);
       } else {
@@ -384,17 +783,55 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               keyboardType: TextInputType.url,
               onChanged: _parseReservationLink,
               style: const TextStyle(color: AppColors.textPrimary),
-              decoration: _inputDecoration(hint: 'https://www.opentable.com/... o enlace', icon: Icons.link),
+              decoration: _inputDecoration(
+                hint: 'Pega enlace de Apparta, Mesa 24/7, Cluvi, Justo, Degusta...',
+                icon: Icons.link,
+              ),
             ),
-            const SizedBox(height: 8),
+            if (_isParsingLink) ...[
+              const SizedBox(height: 8),
+              const Row(
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                  SizedBox(width: 8),
+                  Text('Detectando automáticamente lugar, fecha y hora...', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ] else if (_linkParseMessage != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _linkParseMessage!,
+                        style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
             // Accesos directos a plataformas de reserva
             Wrap(
               spacing: 8,
               runSpacing: 6,
               children: [
+                _buildExternalChip('⚡ Apparta', 'https://www.apparta.co/'),
+                _buildExternalChip('📅 Mesa 24/7', 'https://www.mesa247.co/'),
+                _buildExternalChip('📱 Cluvi', 'https://cluvi.com/'),
+                _buildExternalChip('🛵 Justo', 'https://getjusto.com/'),
+                _buildExternalChip('🍴 Degusta', 'https://www.degustaco.com/'),
                 _buildExternalChip('🍽️ OpenTable', 'https://www.opentable.com/'),
-                _buildExternalChip('📍 Google Reserve', 'https://www.google.com/maps/reserve/'),
-                _buildExternalChip('🍷 Restorando', 'https://www.restorando.com.co/'),
               ],
             ),
             
@@ -411,6 +848,9 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               displayStringForOption: (PlaceAutocomplete option) => option.description,
               onSelected: (PlaceAutocomplete selection) {
                 _placeController.text = selection.description;
+                if (_autoCompleteTextController != null) {
+                  _autoCompleteTextController!.text = selection.description;
+                }
                 _lookupPlacePhoto(selection.description);
                 if (selection.location != null) {
                   setState(() {
@@ -422,9 +862,15 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 }
               },
               fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                _autoCompleteTextController = controller;
+                if (_placeController.text.isNotEmpty && controller.text.isEmpty) {
+                  controller.text = _placeController.text;
+                }
                 controller.addListener(() {
                   if (_placeController.text != controller.text) {
-                    _placeController.text = controller.text;
+                    setState(() {
+                      _placeController.text = controller.text;
+                    });
                   }
                 });
                 return TextField(
@@ -523,18 +969,18 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               ),
             ],
 
+            // 3. Fecha y Hora (Siempre visible con selección rápida)
             const SizedBox(height: 28),
-
-            // 3. Fecha y Hora
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es tu reserva?'),
                 Row(
                   children: [
-                    const Text('Bloquear fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    const Text('Conservar fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    const SizedBox(width: 4),
                     Transform.scale(
-                      scale: 0.8,
+                      scale: 0.75,
                       child: Switch(
                         value: _lockDateTime,
                         activeColor: AppColors.primary,
@@ -554,17 +1000,20 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                       decoration: BoxDecoration(
-                        color: _lockDateTime ? const Color(0xFFF1F3F6) : AppColors.surface,
+                        color: AppColors.surface,
                         border: Border.all(color: AppColors.inputBorder),
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.calendar_month, color: _lockDateTime ? AppColors.textLight : AppColors.primary, size: 20),
+                          const Icon(Icons.calendar_month, color: AppColors.primary, size: 20),
                           const SizedBox(width: 8),
-                          Text(
-                            _selectedDate == null ? 'Fecha' : DateFormat('dd MMM yyyy').format(_selectedDate!),
-                            style: TextStyle(color: _selectedDate == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 15),
+                          Expanded(
+                            child: Text(
+                              _formatDisplayDate(_selectedDate),
+                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
@@ -578,23 +1027,41 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                       decoration: BoxDecoration(
-                        color: _lockDateTime ? const Color(0xFFF1F3F6) : AppColors.surface,
+                        color: AppColors.surface,
                         border: Border.all(color: AppColors.inputBorder),
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.access_time, color: _lockDateTime ? AppColors.textLight : AppColors.primary, size: 20),
+                          const Icon(Icons.access_time, color: AppColors.primary, size: 20),
                           const SizedBox(width: 8),
-                          Text(
-                            _selectedTime == null ? 'Hora' : _selectedTime!.format(context),
-                            style: TextStyle(color: _selectedTime == null ? AppColors.textLight : AppColors.textPrimary, fontSize: 15),
+                          Expanded(
+                            child: Text(
+                              _selectedTime == null ? 'Seleccionar Hora' : _selectedTime!.format(context),
+                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Atajos rápidos para fecha y hora
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _buildQuickDateChip('Hoy', DateTime.now()),
+                _buildQuickDateChip('Mañana', DateTime.now().add(const Duration(days: 1))),
+                _buildQuickDateChip('Viernes', _getNextWeekday(DateTime.friday)),
+                _buildQuickDateChip('Sábado', _getNextWeekday(DateTime.saturday)),
+                _buildQuickTimeChip('7:00 PM', const TimeOfDay(hour: 19, minute: 0)),
+                _buildQuickTimeChip('8:00 PM', const TimeOfDay(hour: 20, minute: 0)),
+                _buildQuickTimeChip('9:00 PM', const TimeOfDay(hour: 21, minute: 0)),
               ],
             ),
 
@@ -712,6 +1179,66 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         const SizedBox(height: 3),
         Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
       ],
+    );
+  }
+
+  String _formatDisplayDate(DateTime? dt) {
+    if (dt == null) return 'Seleccionar Fecha';
+    try {
+      return DateFormat('EEE dd MMM yyyy', 'es').format(dt);
+    } catch (_) {
+      return DateFormat('dd/MM/yyyy').format(dt);
+    }
+  }
+
+  Widget _buildQuickDateChip(String label, DateTime targetDate) {
+    final isSelected = _selectedDate != null &&
+        _selectedDate!.year == targetDate.year &&
+        _selectedDate!.month == targetDate.month &&
+        _selectedDate!.day == targetDate.day;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedDate = targetDate),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary.withOpacity(0.12) : AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? AppColors.primary : AppColors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickTimeChip(String label, TimeOfDay targetTime) {
+    final isSelected = _selectedTime != null &&
+        _selectedTime!.hour == targetTime.hour &&
+        _selectedTime!.minute == targetTime.minute;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTime = targetTime),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary.withOpacity(0.12) : AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? AppColors.primary : AppColors.textSecondary,
+          ),
+        ),
+      ),
     );
   }
 
