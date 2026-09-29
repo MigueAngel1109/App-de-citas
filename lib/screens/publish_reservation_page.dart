@@ -277,13 +277,16 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         }
       }
       // ==========================================
-      // 2. MESA 24/7 (mesa247.co / mesa247.pe / mesa247.com)
+      // 2. MESA 24/7 (mesa247.co / mesa247.pe / mesa247.com / mesa247.cloud)
       // ==========================================
       else if (host.contains('mesa247') || host.contains('mesa 24/7')) {
         platformDetected = 'Mesa 24/7';
         for (var i = segments.length - 1; i >= 0; i--) {
           final seg = segments[i].toLowerCase();
-          if (!stopWords.contains(seg) && seg.isNotEmpty) {
+          // Ignorar IDs/hashes hexadecimales (ej: 300322ccf2d2c767785aaf14f3f6ad08) y slugs genéricos
+          final isHash = RegExp(r'^[0-9a-fA-F]{16,}$').hasMatch(seg);
+          final isGeneric = seg.contains('comparte') || seg.contains('reserva');
+          if (!stopWords.contains(seg) && seg.isNotEmpty && !isHash && !isGeneric) {
             detectedPlace = _cleanSlug(segments[i]);
             break;
           }
@@ -420,6 +423,28 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 } catch (_) {}
               }
 
+              // Extraer de meta description (Mesa 24/7, Degusta, OpenTable, etc.)
+              if (detectedPlace == null || detectedDate == null || detectedTime == null) {
+                final metaDescMatch = RegExp(
+                  r'<meta[^>]+(?:name|itemprop)=["\x27]description["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+                  caseSensitive: false,
+                ).firstMatch(htmlBody);
+                if (metaDescMatch != null) {
+                  final content = metaDescMatch.group(1)!;
+                  final parts = content.split('|');
+                  if (detectedPlace == null && parts.isNotEmpty) {
+                    var candidate = parts[0].replaceAll(RegExp(r'\([^)]*\)'), '').trim();
+                    if (candidate.isNotEmpty && candidate.length < 50 && !candidate.toLowerCase().contains('comparte tu reserva')) {
+                      detectedPlace = candidate;
+                    }
+                  }
+                  if (parts.length > 1) {
+                    detectedDate ??= _parseSpanishDate(parts[1]);
+                    detectedTime ??= _parseTimeString(parts[1]);
+                  }
+                }
+              }
+
               detectedDate ??= _parseSpanishDate(htmlBody);
               detectedTime ??= _parseTimeString(htmlBody);
             }
@@ -442,11 +467,32 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               }
 
               if (detectedPlace == null) {
-                final titleMatch = RegExp(r'Title:\s*(.+?)(?:\s+reservas|\s+menu|\s*\||\n|$)', caseSensitive: false).firstMatch(text);
-                if (titleMatch != null) {
-                  final candidate = titleMatch.group(1)?.trim();
-                  if (candidate != null && candidate.isNotEmpty && candidate.length < 50) {
-                    detectedPlace = candidate;
+                // Caso Mesa 24/7 en markdown: suele venir en un heading: #### Afluente Restaurante
+                final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(text);
+                for (final hm in headingMatches) {
+                  final cand = hm.group(1)?.trim();
+                  if (cand != null &&
+                      cand.isNotEmpty &&
+                      cand.length < 50 &&
+                      !cand.toLowerCase().contains('comparte') &&
+                      !cand.toLowerCase().contains('reserva') &&
+                      !cand.toLowerCase().contains('mesa 24/7') &&
+                      !cand.toLowerCase().contains('image')) {
+                    detectedPlace = cand;
+                    break;
+                  }
+                }
+
+                if (detectedPlace == null) {
+                  final titleMatch = RegExp(r'Title:\s*(.+?)(?:\s+reservas|\s+menu|\s*\||\n|$)', caseSensitive: false).firstMatch(text);
+                  if (titleMatch != null) {
+                    final candidate = titleMatch.group(1)?.trim();
+                    if (candidate != null &&
+                        candidate.isNotEmpty &&
+                        candidate.length < 50 &&
+                        !candidate.toLowerCase().contains('comparte tu reserva')) {
+                      detectedPlace = candidate;
+                    }
                   }
                 }
               }
