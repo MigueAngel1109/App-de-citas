@@ -106,6 +106,20 @@
       overflow: hidden;
       background-color: transparent;
     }
+    /* Ocultar barra inferior y controles flotantes de Google Maps para vista limpia 100% interactiva con gestos */
+    .gm-style-cc {
+      display: none !important;
+    }
+    .gmnoprint {
+      display: none !important;
+    }
+    .gm-style a[href^="https://maps.google.com/maps"],
+    .gm-style a[href^="https://www.google.com/maps"] {
+      display: none !important;
+    }
+    .gm-bundled-control {
+      display: none !important;
+    }
   </style>
 </head>
 <body>

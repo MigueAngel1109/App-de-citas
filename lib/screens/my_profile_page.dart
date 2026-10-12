@@ -70,11 +70,6 @@ class MyProfilePage extends StatelessWidget {
           final birthDate = data['birthDate'] != null ? (data['birthDate'] as Timestamp).toDate() : null;
           final age = birthDate != null ? _calculateAge(birthDate) : '?';
           final bio = data['bio'] ?? '';
-          final gender = data['gender'] ?? '';
-          final showGender = data['showGenderOnProfile'] ?? true;
-          final sexualOrientation = (data['sexualOrientation'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-          final interestedIn = data['interestedIn'] ?? '';
-          final relationshipGoal = data['relationshipGoal'] ?? '';
 
           // Ocupación y escuela
           final work = data['work'] ?? '';
@@ -82,6 +77,7 @@ class MyProfilePage extends StatelessWidget {
 
           // Redes
           final instagramHandle = data['instagramHandle'] ?? '';
+          final city = data['city']?.toString();
           final interests = (data['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
           // Estilo de vida
@@ -115,91 +111,77 @@ class MyProfilePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Galería / Carrusel de fotos
-                if (photoUrls.isNotEmpty)
-                  SizedBox(
-                    height: 320,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: photoUrls.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemBuilder: (context, i) {
-                        final currentUrl = photoUrls[i];
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: Stack(
+                // Nombre, edad, verificación y @instagram en la cabecera
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    Text(
+                      '$name, $age',
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
+                    if (instagramHandle.isNotEmpty)
+                      InkWell(
+                        onTap: () async {
+                          final uri = Uri.parse('https://instagram.com/$instagramHandle');
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE1306C).withOpacity(0.09),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE1306C).withOpacity(0.35)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Image.network(
-                                currentUrl,
-                                width: 240,
-                                height: 320,
-                                fit: BoxFit.cover,
-                                loadingBuilder: (context, child, loadingProgress) {
-                                  if (loadingProgress == null) return child;
-                                  return Container(
-                                    width: 240,
-                                    height: 320,
-                                    color: AppColors.surface,
-                                    child: const Center(
-                                      child: CircularProgressIndicator(color: AppColors.primary),
-                                    ),
-                                  );
-                                },
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    width: 240,
-                                    height: 320,
-                                    color: AppColors.surface,
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.broken_image, size: 40, color: AppColors.textLight),
-                                        const SizedBox(height: 8),
-                                        const Padding(
-                                          padding: EdgeInsets.symmetric(horizontal: 16),
-                                          child: Text(
-                                            'Error al cargar imagen',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        TextButton.icon(
-                                          onPressed: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
-                                            );
-                                          },
-                                          icon: const Icon(Icons.refresh, size: 16, color: AppColors.primary),
-                                          label: const Text('Actualizar foto', style: TextStyle(fontSize: 12, color: AppColors.primary)),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                              if (i == 0)
-                                Positioned(
-                                  top: 10,
-                                  left: 10,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.6),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Text('Principal', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                  ),
+                              _buildInstagramGlyph(size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                '@$instagramHandle',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFFE1306C),
                                 ),
+                              ),
                             ],
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Solo Ciudad visible en cabecera
+                if (city != null && city.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildTagBadge('📍 $city', isHighlight: true),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ] else
+                  const SizedBox(height: 12),
+
+                // FOTO 1 (Principal)
+                if (photoUrls.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[0]),
                   )
                 else
                   Container(
                     width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 18),
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
@@ -238,74 +220,100 @@ class MyProfilePage extends StatelessWidget {
                     ),
                   ),
 
-                const SizedBox(height: 20),
-
-                // Nombre, edad y verificación
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '$name, $age',
-                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                      ),
-                    ),
-                    const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                // Etiquetas de Género y Orientación
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (showGender && gender.isNotEmpty)
-                      _buildTagBadge(gender),
-                    ...sexualOrientation.map((o) => _buildTagBadge(o)),
-                    if (interestedIn.isNotEmpty)
-                      _buildTagBadge('Busca: $interestedIn'),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Objetivo de relación
-                if (relationshipGoal.isNotEmpty) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.auto_awesome, color: AppColors.primary, size: 24),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('BUSCANDO EN LA APP', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary, letterSpacing: 1)),
-                              const SizedBox(height: 2),
-                              Text(relationshipGoal, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                            ],
-                          ),
-                        ),
+                // =========================================================
+                // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):
+                // 1. Biografía / Descripción personal
+                // 2. Personalidad MBTI
+                // 3. Lenguajes del Amor
+                // 4. Signo Zodiacal
+                // =========================================================
+                _buildSectionHeader('Sobre mí'),
+                _buildInfoCard(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 1. Biografía / Descripción personal
+                      if (bio.isNotEmpty) ...[
+                        Text(bio, style: const TextStyle(fontSize: 15, color: AppColors.textPrimary, height: 1.4)),
+                        const SizedBox(height: 16),
+                      ] else ...[
+                        const Text('Sin descripción aún.', style: TextStyle(fontSize: 14, color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+                        const SizedBox(height: 16),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+                      const Divider(color: AppColors.divider, height: 1),
+                      const SizedBox(height: 14),
 
-                // Sobre mí (Bio)
-                if (bio.isNotEmpty) ...[
-                  _buildSectionHeader('Sobre mí'),
-                  _buildInfoCard(
-                    Text(bio, style: const TextStyle(fontSize: 15, color: AppColors.textPrimary, height: 1.4)),
+                      // 2. Personalidad MBTI
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 22),
+                          const SizedBox(width: 10),
+                          const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
+                              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // 3. Lenguajes del Amor
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Lenguajes del Amor:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                                const SizedBox(height: 4),
+                                Text(
+                                  loveLanguage != null && loveLanguage.toString().isNotEmpty ? loveLanguage.toString() : 'No especificado',
+                                  style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.3),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // 4. Signo Zodiacal
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 22),
+                          const SizedBox(width: 10),
+                          const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                          const SizedBox(width: 6),
+                          Text(
+                            zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
+                            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 20),
-                ],
+                ),
+                const SizedBox(height: 18),
+
+                // FOTO 2
+                if (photoUrls.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[1]),
+                  ),
 
                 // Ocupación y Educación
                 if (work.isNotEmpty || school.isNotEmpty) ...[
@@ -318,7 +326,7 @@ class MyProfilePage extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                 ],
 
                 // Intereses y Pasiones
@@ -341,10 +349,17 @@ class MyProfilePage extends StatelessWidget {
                       }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                 ],
 
-                // Estilo de Vida y Hábitos (sin dieta)
+                // FOTO 3
+                if (photoUrls.length > 2)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[2]),
+                  ),
+
+                // Estilo de Vida y Hábitos
                 _buildSectionHeader('Estilo de vida'),
                 _buildInfoCard(
                   Wrap(
@@ -360,48 +375,39 @@ class MyProfilePage extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
 
-                // Información Personal y Antecedentes (con MBTI)
+                // FOTO 4
+                if (photoUrls.length > 3)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[3]),
+                  ),
+
+                // Más detalles (Educación, Familia, Comunicación, Idiomas)
                 _buildSectionHeader('Más sobre mí'),
                 _buildInfoCard(
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      if (mbti != null) _buildTagBadge('🧠 MBTI: $mbti'),
-                      if (zodiac != null) _buildTagBadge('⭐ $zodiac'),
                       if (education != null) _buildTagBadge('🎓 $education'),
-                      if (loveLanguage != null) _buildTagBadge('💖 $loveLanguage'),
                       if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
                       if (communication != null) _buildTagBadge('💬 $communication'),
                       if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
 
-                // Redes: Instagram
-                if (instagramHandle.isNotEmpty) ...[
-                  _buildSectionHeader('Redes Sociales'),
-                  _buildInfoCard(
-                    InkWell(
-                      onTap: () async {
-                        final uri = Uri.parse('https://instagram.com/$instagramHandle');
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        }
-                      },
-                      child: _buildListTileInfo(
-                        Icons.camera_alt_outlined,
-                        '@$instagramHandle en Instagram',
-                        iconColor: const Color(0xFFE1306C),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textLight),
-                      ),
-                    ),
+                // FOTOS RESTANTES (5, 6, etc.)
+                for (int i = 4; i < photoUrls.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[i]),
                   ),
-                  const SizedBox(height: 30),
-                ],
+
+                const SizedBox(height: 10),
 
                 // Botón Cerrar Sesión
                 SizedBox(
@@ -450,26 +456,109 @@ class MyProfilePage extends StatelessWidget {
     );
   }
 
-  Widget _buildTagBadge(String text) {
+  Widget _buildTagBadge(String text, {bool isHighlight = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: isHighlight ? AppColors.primary.withOpacity(0.08) : AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.inputBorder),
+        border: Border.all(
+          color: isHighlight ? AppColors.primary.withOpacity(0.3) : AppColors.inputBorder,
+          width: isHighlight ? 1.2 : 1.0,
+        ),
       ),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          fontSize: 13,
+          color: isHighlight ? AppColors.primary : AppColors.textPrimary,
+          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500,
+        ),
       ),
     );
   }
 
-  Widget _buildListTileInfo(IconData icon, String text, {Color? iconColor, Widget? trailing}) {
+  Widget _buildContinuousPhoto(String url) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        height: 380,
+        width: double.infinity,
+        color: const Color(0xFF1E1E1E),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              color: AppColors.surface,
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => Container(
+            color: AppColors.surface,
+            child: const Center(
+              child: Icon(Icons.broken_image, size: 50, color: AppColors.textLight),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInstagramGlyph({double size = 22}) {
+    return Container(
+      width: size,
+      height: size,
+      margin: size > 16 ? const EdgeInsets.only(right: 12) : EdgeInsets.zero,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        gradient: const LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [
+            Color(0xFFFCAF45),
+            Color(0xFFF77737),
+            Color(0xFFE1306C),
+            Color(0xFFC13584),
+            Color(0xFF833AB4),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: size * 0.63,
+          height: size * 0.63,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * 0.18),
+            border: Border.all(color: Colors.white, width: size > 16 ? 1.5 : 1.1),
+          ),
+          child: Center(
+            child: Container(
+              width: size * 0.23,
+              height: size * 0.23,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: size > 16 ? 1.2 : 0.9),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListTileInfo(IconData? icon, String text, {Color? iconColor, Widget? leadingWidget, Widget? trailing}) {
     return Row(
       children: [
-        Icon(icon, color: iconColor ?? AppColors.primary, size: 20),
-        const SizedBox(width: 12),
+        if (leadingWidget != null)
+          leadingWidget
+        else if (icon != null) ...[
+          Icon(icon, color: iconColor ?? AppColors.primary, size: 20),
+          const SizedBox(width: 12),
+        ],
         Expanded(
           child: Text(text, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
         ),
@@ -478,3 +567,4 @@ class MyProfilePage extends StatelessWidget {
     );
   }
 }
+

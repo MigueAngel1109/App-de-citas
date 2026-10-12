@@ -1,11 +1,9 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import '../screens/chat_detail_page.dart';
-import 'instagram_icon.dart';
 
 /// Módulo de Descubrir Personas:
 /// Muestra directamente el perfil completo con fotos, datos y estilo de vida (sin swipe de tarjetas),
@@ -23,10 +21,8 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   final List<Map<String, dynamic>> _candidates = [];
   bool _isLoading = true;
   int _currentIndex = 0;
-  int _currentPhotoIndex = 0;
 
   final ScrollController _scrollController = ScrollController();
-  final PageController _photoPageController = PageController();
 
   String? _myInterestedIn;
   String _myName = 'Usuario';
@@ -41,7 +37,6 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   @override
   void dispose() {
     _scrollController.dispose();
-    _photoPageController.dispose();
     super.dispose();
   }
 
@@ -128,7 +123,6 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
           _candidates.clear();
           _candidates.addAll(list);
           _currentIndex = 0;
-          _currentPhotoIndex = 0;
           _isLoading = false;
         });
       }
@@ -142,13 +136,9 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     if (_currentIndex >= _candidates.length) return;
     setState(() {
       _currentIndex++;
-      _currentPhotoIndex = 0;
     });
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
-    }
-    if (_photoPageController.hasClients) {
-      _photoPageController.jumpToPage(0);
     }
   }
 
@@ -371,13 +361,9 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                   await _handleLike(candidate, notifyMatch: true);
                                   setState(() {
                                     _currentIndex++;
-                                    _currentPhotoIndex = 0;
                                   });
                                   if (_scrollController.hasClients) {
                                     _scrollController.jumpTo(0);
-                                  }
-                                  if (_photoPageController.hasClients) {
-                                    _photoPageController.jumpToPage(0);
                                   }
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -530,13 +516,9 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
                                     setState(() {
                                       _currentIndex++;
-                                      _currentPhotoIndex = 0;
                                     });
                                     if (_scrollController.hasClients) {
                                       _scrollController.jumpTo(0);
-                                    }
-                                    if (_photoPageController.hasClients) {
-                                      _photoPageController.jumpToPage(0);
                                     }
 
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -802,144 +784,87 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   }
 
   // -------------------------------------------------------------
-  // CONTENIDO DEL PERFIL (Visual estilo Feeld/Hinge + Ficha detallada)
+  // CONTENIDO DEL PERFIL (Idéntico a Mi Perfil - Continuo y detallado)
   // -------------------------------------------------------------
   Widget _buildProfileContent(Map<String, dynamic> candidate) {
     final name = candidate['name'] ?? 'Usuario';
-    final age = _calculateAge(candidate['birthDate']);
+    final ageVal = _calculateAge(candidate['birthDate']);
+    final age = ageVal > 0 ? ageVal.toString() : '?';
     final bio = (candidate['bio'] ?? '').toString().trim();
-    final gender = (candidate['gender'] ?? '').toString();
-    final showGender = candidate['showGenderOnProfile'] ?? true;
-    final sexualOrientation =
-        (candidate['sexualOrientation'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-    final relationshipGoal = (candidate['relationshipGoal'] ?? '').toString();
-    final instagramHandle = (candidate['instagramHandle'] ?? '').toString().replaceAll('@', '').trim();
 
+    // Ocupación y escuela
     final work = (candidate['work'] ?? '').toString().trim();
     final school = (candidate['school'] ?? candidate['education'] ?? '').toString().trim();
+
+    // Redes y ubicación
+    final instagramHandle = (candidate['instagramHandle'] ?? '').toString().replaceAll('@', '').trim();
+    final city = candidate['city']?.toString();
     final interests =
         (candidate['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
+    // Estilo de vida
     final lifestyle = candidate['lifestyle'] as Map<String, dynamic>? ?? {};
+    final pets = lifestyle['pets'];
+    final drinking = lifestyle['drinking'];
+    final smokingTobacco = lifestyle['smokingTobacco'];
+    final smokingCannabis = lifestyle['smokingCannabis'];
+    final workout = lifestyle['workout'];
+    final sleepPattern = lifestyle['sleepPattern'];
+
+    // Información personal
     final personal = candidate['personal'] as Map<String, dynamic>? ?? {};
+    final zodiac = personal['zodiac'];
     final mbti = personal['mbti'] ?? candidate['mbti'];
+    final education = personal['education'];
+    final loveLanguage = personal['loveLanguage'];
+    final familyPlans = personal['familyPlans'];
+    final communication = personal['communication'];
+    final languages = (personal['languages'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
     // Lista de fotos válidas
     final rawPhotos = (candidate['photoUrls'] as List?) ?? (candidate['photos'] as List?) ?? [];
-    final List<String> photos = rawPhotos
+    final List<String> photoUrls = rawPhotos
         .map((e) => e.toString().trim())
-        .where((u) => u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://')))
+        .where((u) => u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('blob:')))
         .toList();
 
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 1. FOTO PRINCIPAL CON BORDES REDONDEADOS Y PAGINACIÓN LATERAL (Estilo Imagen 1)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-          child: _buildMainPhotoCard(photos, name),
-        ),
-
-        // 2. ENCABEZADO: Nombre, Verificación, Estado y Subtítulo
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Nombre, edad, verificación y @instagram en la cabecera
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            age > 0 ? '$name, $age' : name,
-                            style: const TextStyle(
-                              fontSize: 27,
-                              fontWeight: FontWeight.w900,
-                              color: AppColors.textPrimary,
-                              letterSpacing: -0.3,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.verified, color: Colors.blueAccent, size: 22),
-                      ],
-                    ),
-                  ),
-
-                  // Badge "ACTIVO RECIENTE" / "LAST SEEN" (como en la Imagen 1)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECEEF2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'ACTIVO RECIENTE',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                        color: Color(0xFF555A68),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 4),
-
-              // Subtítulo: Género y Orientación (ej: "33 · Mujer · Heterosexual")
               Text(
-                _buildSubtitleText(age, gender, showGender, sexualOrientation),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textSecondary,
-                ),
+                '$name, $age',
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
               ),
-
-              const SizedBox(height: 3),
-
-              // Ubicación
-              const Row(
-                children: [
-                  Icon(Icons.location_on_outlined, size: 14, color: AppColors.textLight),
-                  SizedBox(width: 4),
-                  Text(
-                    'Bogotá',
-                    style: TextStyle(fontSize: 13, color: AppColors.textLight),
-                  ),
-                ],
-              ),
-
-              // Chip de Instagram si existe
-              if (instagramHandle.isNotEmpty) ...[
-                const SizedBox(height: 10),
+              const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
+              if (instagramHandle.isNotEmpty)
                 InkWell(
                   onTap: () => _openInstagram(instagramHandle),
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE1306C).withOpacity(0.08),
+                      color: const Color(0xFFE1306C).withOpacity(0.09),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE1306C).withOpacity(0.3)),
+                      border: Border.all(color: const Color(0xFFE1306C).withOpacity(0.35)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const InstagramIcon(size: 15, color: Color(0xFFE1306C)),
-                        const SizedBox(width: 5),
+                        _buildInstagramGlyph(size: 14),
+                        const SizedBox(width: 4),
                         Text(
                           '@$instagramHandle',
                           style: const TextStyle(
                             fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w800,
                             color: Color(0xFFE1306C),
                           ),
                         ),
@@ -947,351 +872,354 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                     ),
                   ),
                 ),
-              ],
             ],
           ),
-        ),
+          const SizedBox(height: 8),
 
-        const SizedBox(height: 16),
+          // Solo Ciudad visible en cabecera
+          if (city != null && city.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildTagBadge('📍 $city', isHighlight: true),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ] else
+            const SizedBox(height: 12),
 
-        // 3. OBJETIVO EN LA APP (como estaba antes - imagen de referencia)
-        if (relationshipGoal.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.primary.withOpacity(0.15)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.auto_awesome, color: AppColors.primary, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'OBJETIVO EN LA APP',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        Text(
-                          relationshipGoal,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ],
+          // FOTO 1 (Principal)
+          if (photoUrls.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[0]),
+            ),
+
+          // =========================================================
+          // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):
+          // 1. Biografía / Descripción personal
+          // 2. Personalidad MBTI
+          // 3. Lenguajes del Amor
+          // 4. Signo Zodiacal
+          // =========================================================
+          _buildSectionHeader('Sobre mí'),
+          _buildInfoCard(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Biografía / Descripción personal
+                if (bio.isNotEmpty) ...[
+                  Text(bio, style: const TextStyle(fontSize: 15, color: AppColors.textPrimary, height: 1.4)),
+                  const SizedBox(height: 16),
+                ] else ...[
+                  const Text('Sin descripción aún.', style: TextStyle(fontSize: 14, color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+                  const SizedBox(height: 16),
+                ],
+                const Divider(color: AppColors.divider, height: 1),
+                const SizedBox(height: 14),
+
+                // 2. Personalidad MBTI
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 22),
+                    const SizedBox(width: 10),
+                    const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
+                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // 3. Lenguajes del Amor
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Lenguajes del Amor:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                          const SizedBox(height: 4),
+                          Text(
+                            loveLanguage != null && loveLanguage.toString().isNotEmpty ? loveLanguage.toString() : 'No especificado',
+                            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // 4. Signo Zodiacal
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 22),
+                    const SizedBox(width: 10),
+                    const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+                    const SizedBox(width: 6),
+                    Text(
+                      zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
+                      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // FOTO 2
+          if (photoUrls.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[1]),
+            ),
+
+          // Ocupación y Educación
+          if (work.isNotEmpty || school.isNotEmpty) ...[
+            _buildSectionHeader('Ocupación y Educación'),
+            _buildInfoCard(
+              Column(
+                children: [
+                  if (work.isNotEmpty) _buildListTileInfo(Icons.work_outline, work),
+                  if (school.isNotEmpty) _buildListTileInfo(Icons.school_outlined, school),
                 ],
               ),
             ),
-          ),
+            const SizedBox(height: 18),
+          ],
 
-        // 4. BIOGRAFÍA (Imagen 2)
-        if (bio.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionTitle('Biografía'),
-                _buildCard(
-                  Text(
-                    bio,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textPrimary,
-                      height: 1.45,
+          // Intereses y Pasiones
+          if (interests.isNotEmpty) ...[
+            _buildSectionHeader('Intereses y Pasiones'),
+            _buildInfoCard(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: interests.map((tag) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.inputBorder),
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-
-        // 5. DESEOS / INTERESES (Burbujas suaves estilo Imagen 1: "Desires")
-        if (interests.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionTitle('Deseos e Intereses'),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: interests.map((tag) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFECEFF5), // Burbuja gris suave como Imagen 1
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFE2E6EF)),
-                      ),
-                      child: Text(
-                        tag,
-                        style: const TextStyle(
-                          color: Color(0xFF282E3B),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
-          ),
-        ],
-
-        // 6. SOBRE MÍ (Formato lista con iconos - Imagen 2)
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionTitle('Sobre mí'),
-              _buildCard(
-                Column(
-                  children: [
-                    if (work.isNotEmpty) _buildRow(Icons.work_outline, 'Ocupación: $work'),
-                    if (school.isNotEmpty) ...[
-                      if (work.isNotEmpty) const Divider(height: 16),
-                      _buildRow(Icons.school_outlined, 'Educación: $school'),
-                    ],
-                    if (mbti != null) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.psychology_outlined, 'Personalidad MBTI: $mbti'),
-                    ],
-                    if (personal['zodiac'] != null) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.nights_stay_outlined, 'Signo: ${personal['zodiac']}'),
-                    ],
-                    if (personal['loveLanguage'] != null) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.favorite_outline, 'Lenguaje del amor: ${personal['loveLanguage']}'),
-                    ],
-                    if (personal['familyPlans'] != null) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.child_care_outlined, 'Planes familiares: ${personal['familyPlans']}'),
-                    ],
-                    if (personal['communication'] != null) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.chat_bubble_outline, 'Comunicación: ${personal['communication']}'),
-                    ],
-                    if (personal['languages'] != null && (personal['languages'] as List).isNotEmpty) ...[
-                      const Divider(height: 16),
-                      _buildRow(Icons.translate, 'Idiomas: ${(personal['languages'] as List).join(", ")}'),
-                    ],
-                  ],
-                ),
+                    child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                  );
+                }).toList(),
               ),
-            ],
-          ),
-        ),
+            ),
+            const SizedBox(height: 18),
+          ],
 
-        // 8. ESTILO DE VIDA Y HÁBITOS
-        if (lifestyle.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // FOTO 3
+          if (photoUrls.length > 2)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[2]),
+            ),
+
+          // Estilo de Vida y Hábitos
+          _buildSectionHeader('Estilo de vida'),
+          _buildInfoCard(
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                _buildSectionTitle('Estilo de Vida'),
-                _buildCard(
-                  Column(
-                    children: [
-                      if (lifestyle['pets'] != null) _buildRow(Icons.pets, 'Mascotas: ${lifestyle['pets']}'),
-                      if (lifestyle['workout'] != null) ...[
-                        const Divider(height: 14),
-                        _buildRow(Icons.fitness_center, 'Ejercicio: ${lifestyle['workout']}'),
-                      ],
-                      if (lifestyle['drinking'] != null) ...[
-                        const Divider(height: 14),
-                        _buildRow(Icons.local_bar, 'Bebidas: ${lifestyle['drinking']}'),
-                      ],
-                      if (lifestyle['smokingTobacco'] != null) ...[
-                        const Divider(height: 14),
-                        _buildRow(Icons.smoking_rooms, 'Tabaco: ${lifestyle['smokingTobacco']}'),
-                      ],
-                      if (lifestyle['smokingCannabis'] != null) ...[
-                        const Divider(height: 14),
-                        _buildRow(Icons.eco_outlined, 'Cannabis: ${lifestyle['smokingCannabis']}'),
-                      ],
-                      if (lifestyle['sleepPattern'] != null) ...[
-                        const Divider(height: 14),
-                        _buildRow(Icons.bedtime_outlined, 'Horario de sueño: ${lifestyle['sleepPattern']}'),
-                      ],
-                    ],
-                  ),
-                ),
+                if (pets != null) _buildTagBadge('🐾 $pets'),
+                if (drinking != null) _buildTagBadge('🍷 $drinking'),
+                if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
+                if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
+                if (workout != null) _buildTagBadge('💪 $workout'),
+                if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
               ],
             ),
           ),
-        ],
+          const SizedBox(height: 18),
 
-        const SizedBox(height: 24),
-      ],
+          // FOTO 4
+          if (photoUrls.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[3]),
+            ),
+
+          // Más detalles (Educación, Familia, Comunicación, Idiomas)
+          _buildSectionHeader('Más sobre mí'),
+          _buildInfoCard(
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                if (education != null) _buildTagBadge('🎓 $education'),
+                if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
+                if (communication != null) _buildTagBadge('💬 $communication'),
+                if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // FOTOS RESTANTES (5, 6, etc.)
+          for (int i = 4; i < photoUrls.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[i]),
+            ),
+
+          const SizedBox(height: 10),
+        ],
+      ),
     );
   }
 
-  // -------------------------------------------------------------
-  // FOTOS SUPERIORES CON CARRUSEL DESLIZABLE A LA IZQUIERDA
-  // -------------------------------------------------------------
-  Widget _buildMainPhotoCard(List<String> photos, String name) {
-    final photoHeight = MediaQuery.of(context).size.height * 0.52;
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        title,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+      ),
+    );
+  }
 
-    if (photos.isEmpty) {
-      return Container(
-        height: photoHeight,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2C2C2C),
-          borderRadius: BorderRadius.circular(28),
+  Widget _buildInfoCard(Widget child) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildTagBadge(String text, {bool isHighlight = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isHighlight ? AppColors.primary.withOpacity(0.08) : AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHighlight ? AppColors.primary.withOpacity(0.3) : AppColors.inputBorder,
+          width: isHighlight ? 1.2 : 1.0,
         ),
-        child: const Center(child: Icon(Icons.person, size: 90, color: Colors.white54)),
-      );
-    }
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 13,
+          color: isHighlight ? AppColors.primary : AppColors.textPrimary,
+          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500,
+        ),
+      ),
+    );
+  }
 
+  Widget _buildContinuousPhoto(String url) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(24),
       child: Container(
-        height: photoHeight,
+        height: 380,
         width: double.infinity,
         color: const Color(0xFF1E1E1E),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Carrusel horizontal de fotos con soporte para deslizamiento táctil y de ratón
-            ScrollConfiguration(
-              behavior: ScrollConfiguration.of(context).copyWith(
-                dragDevices: {
-                  PointerDeviceKind.touch,
-                  PointerDeviceKind.mouse,
-                  PointerDeviceKind.trackpad,
-                },
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              color: AppColors.surface,
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
               ),
-              child: PageView.builder(
-                controller: _photoPageController,
-                itemCount: photos.length,
-                physics: const BouncingScrollPhysics(),
-                onPageChanged: (index) {
-                  setState(() {
-                    _currentPhotoIndex = index;
-                  });
-                },
-                itemBuilder: (context, index) {
-                  return Image.network(
-                    photos[index],
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: AppColors.surface,
-                      child: const Center(child: Icon(Icons.broken_image, size: 60, color: AppColors.textLight)),
-                    ),
-                  );
-                },
-              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => Container(
+            color: AppColors.surface,
+            child: const Center(
+              child: Icon(Icons.broken_image, size: 50, color: AppColors.textLight),
             ),
+          ),
+        ),
+      ),
+    );
+  }
 
-            // Sombra suave inferior para legibilidad
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 100,
-              child: IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.transparent, Colors.black.withOpacity(0.45)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // Zonas de toque táctil para pasar fotos al presionar (Izquierda: anterior, Derecha: siguiente)
-            if (photos.length > 1)
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () {
-                        if (_currentPhotoIndex > 0) {
-                          _photoPageController.previousPage(
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () {
-                        if (_currentPhotoIndex < photos.length - 1) {
-                          _photoPageController.nextPage(
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-
-            // Barras de historias superiores (indicadores de foto)
-            if (photos.length > 1)
-              Positioned(
-                top: 12,
-                left: 14,
-                right: 14,
-                child: IgnorePointer(
-                  child: Row(
-                    children: List.generate(photos.length, (i) {
-                      final isActive = i == _currentPhotoIndex;
-                      return Expanded(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 3.5,
-                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                          decoration: BoxDecoration(
-                            color: isActive ? Colors.white : Colors.white.withOpacity(0.35),
-                            borderRadius: BorderRadius.circular(2),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black26, blurRadius: 2),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-              ),
+  Widget _buildInstagramGlyph({double size = 22}) {
+    return Container(
+      width: size,
+      height: size,
+      margin: size > 16 ? const EdgeInsets.only(right: 12) : EdgeInsets.zero,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        gradient: const LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [
+            Color(0xFFFCAF45),
+            Color(0xFFF77737),
+            Color(0xFFE1306C),
+            Color(0xFFC13584),
+            Color(0xFF833AB4),
           ],
         ),
       ),
+      child: Center(
+        child: Container(
+          width: size * 0.63,
+          height: size * 0.63,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * 0.18),
+            border: Border.all(color: Colors.white, width: size > 16 ? 1.5 : 1.1),
+          ),
+          child: Center(
+            child: Container(
+              width: size * 0.23,
+              height: size * 0.23,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: size > 16 ? 1.2 : 0.9),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListTileInfo(IconData? icon, String text, {Color? iconColor, Widget? leadingWidget, Widget? trailing}) {
+    return Row(
+      children: [
+        if (leadingWidget != null)
+          leadingWidget
+        else if (icon != null) ...[
+          Icon(icon, color: iconColor ?? AppColors.primary, size: 20),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: Text(text, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
+        ),
+        if (trailing != null) trailing,
+      ],
     );
   }
 
@@ -1449,64 +1377,5 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   // -------------------------------------------------------------
   // HELPERS DE DISEÑO Y COMPONENTES
   // -------------------------------------------------------------
-  String _buildSubtitleText(int age, String gender, bool showGender, List<String> sexualOrientation) {
-    final parts = <String>[];
-    if (showGender && gender.isNotEmpty) parts.add(gender);
-    if (sexualOrientation.isNotEmpty) parts.add(sexualOrientation.first);
-    return parts.join(' · ');
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.bold,
-          color: AppColors.textPrimary,
-          letterSpacing: -0.2,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCard(Widget child) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-
-  Widget _buildRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: AppColors.primary),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
+

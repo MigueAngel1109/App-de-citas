@@ -27,6 +27,8 @@ class ReservationMapItem {
   final String details;
   final String link;
   final String formattedDate;
+  final String displayDate;
+  final String displayTime;
   final String locationText;
   final String hostUserId;
   final String hostName;
@@ -46,6 +48,8 @@ class ReservationMapItem {
     required this.details,
     required this.link,
     required this.formattedDate,
+    required this.displayDate,
+    required this.displayTime,
     required this.locationText,
     required this.hostUserId,
     required this.hostName,
@@ -67,14 +71,15 @@ class DiscoverPage extends StatefulWidget {
 class DiscoverPageState extends State<DiscoverPage> {
   GoogleMapController? _mapController;
   
-  // Bogotá por defecto
-  static const LatLng _bogotaCenter = LatLng(4.6097, -74.0817);
+  // Bogotá por defecto (centrado ligeramente hacia el corredor oriental / Chapinero / Usaquén con vista hacia la izquierda)
+  static const LatLng _bogotaCenter = LatLng(4.6550, -74.0620);
   LatLng _currentPosition = _bogotaCenter;
   
   Set<Marker> _markers = {};
   List<ReservationMapItem> _reservationsList = [];
   ReservationMapItem? _selectedReservation;
   int _selectedReservationIndex = 0;
+  final PageController _carouselPageController = PageController(viewportFraction: 0.88);
   int _panAnimationId = 0;
   LatLng _lastCameraPosition = _bogotaCenter;
   bool _showPeopleDiscovery = false;
@@ -104,6 +109,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     _userSub?.cancel();
     _reservationsSub?.cancel();
     _mapController = null;
+    _carouselPageController.dispose();
     super.dispose();
   }
 
@@ -202,15 +208,17 @@ class DiscoverPageState extends State<DiscoverPage> {
       _selectedReservation = _reservationsList[idx];
     });
 
+    if (_carouselPageController.hasClients) {
+      if ((_carouselPageController.page?.round() ?? -1) != idx) {
+        _carouselPageController.animateToPage(
+          idx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    }
+
     _smoothPanTo(_reservationsList[idx].latLng);
-  }
-
-  void _goToNextReservation() {
-    _goToReservation(_selectedReservationIndex + 1);
-  }
-
-  void _goToPrevReservation() {
-    _goToReservation(_selectedReservationIndex - 1);
   }
 
   LatLng? _parseLocation(dynamic loc, dynamic lat, dynamic lng) {
@@ -230,7 +238,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     return null;
   }
 
-  String _formatReservationDate(dynamic rawDateTime) {
+  Map<String, String> _splitReservationDateTime(dynamic rawDateTime) {
     DateTime? dateTime;
     if (rawDateTime is Timestamp) {
       dateTime = rawDateTime.toDate();
@@ -240,17 +248,35 @@ class DiscoverPageState extends State<DiscoverPage> {
       dateTime = DateTime.tryParse(rawDateTime);
     }
 
-    if (dateTime == null) return '';
+    if (dateTime == null) {
+      return {'date': 'Fecha pendiente', 'time': 'Hora por confirmar'};
+    }
 
+    String dateStr;
+    String timeStr;
     try {
-      return DateFormat('EEE dd MMM • HH:mm', 'es').format(dateTime);
+      dateStr = DateFormat('EEEE dd ' 'MMMM', 'es').format(dateTime);
+      // Capitalizar la primera letra del día
+      if (dateStr.isNotEmpty) {
+        dateStr = dateStr[0].toUpperCase() + dateStr.substring(1);
+      }
+      timeStr = DateFormat('hh:mm a', 'es').format(dateTime);
     } catch (_) {
       final day = dateTime.day.toString().padLeft(2, '0');
       final month = dateTime.month.toString().padLeft(2, '0');
+      final year = dateTime.year.toString();
       final hour = dateTime.hour.toString().padLeft(2, '0');
       final minute = dateTime.minute.toString().padLeft(2, '0');
-      return '$day/$month • $hour:$minute';
+      dateStr = '$day/$month/$year';
+      timeStr = '$hour:$minute';
     }
+
+    return {'date': dateStr, 'time': timeStr};
+  }
+
+  String _formatReservationDate(dynamic rawDateTime) {
+    final split = _splitReservationDateTime(rawDateTime);
+    return '${split['date']} • ${split['time']}';
   }
 
   Future<void> _determinePosition() async {}
@@ -479,6 +505,7 @@ class DiscoverPageState extends State<DiscoverPage> {
           final paymentType = data['paymentType'] ?? '';
           final details = data['details'] ?? '';
           final link = data['link'] ?? '';
+          final splitDate = _splitReservationDateTime(data['dateTime']);
           final dateStr = _formatReservationDate(data['dateTime']);
 
           String locationArea = 'Zona Bogotá';
@@ -503,6 +530,8 @@ class DiscoverPageState extends State<DiscoverPage> {
             details: details,
             link: link,
             formattedDate: dateStr,
+            displayDate: splitDate['date'] ?? '',
+            displayTime: splitDate['time'] ?? '',
             locationText: locationArea,
             hostUserId: userId ?? '',
             hostName: userName,
@@ -1711,27 +1740,6 @@ class DiscoverPageState extends State<DiscoverPage> {
     return Set<Marker>.from(_markers);
   }
 
-  Set<Polygon> _buildPolygons() {
-    final Set<Polygon> polygons = {};
-    final normPreferred = _preferredZones.map(ZoneData.normalizeZoneName).toSet();
-
-    for (var entry in ZoneData.polygons.entries) {
-      final zoneName = entry.key;
-      if (normPreferred.contains(ZoneData.normalizeZoneName(zoneName))) {
-        polygons.add(
-          Polygon(
-            polygonId: PolygonId(zoneName),
-            points: entry.value,
-            fillColor: Colors.transparent,
-            strokeColor: Colors.black,
-            strokeWidth: 2,
-            consumeTapEvents: false,
-          ),
-        );
-      }
-    }
-    return polygons;
-  }
 
   static const String _cleanMapStyle = '''
   [
@@ -1847,7 +1855,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             child: Offstage(
               offstage: _showPeopleDiscovery,
               child: GoogleMap(
-                initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 11.8),
+                initialCameraPosition: CameraPosition(target: _currentPosition, zoom: 12.3),
                 myLocationEnabled: false,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
@@ -1862,7 +1870,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                 style: _cleanMapStyle,
                 markers: _combinedMarkers,
                 circles: const {},
-                polygons: _buildPolygons(),
+                polygons: const {},
                 onCameraMove: (CameraPosition pos) {
                   _lastCameraPosition = pos.target;
                 },
@@ -1887,81 +1895,85 @@ class DiscoverPageState extends State<DiscoverPage> {
             top: topOffset + 8,
             left: 20,
             right: 20,
-            child: Container(
-              height: 48,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(25),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: () => setState(() => _showPeopleDiscovery = false),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        decoration: BoxDecoration(
-                          color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        alignment: Alignment.center,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Reservas en Mapa',
-                              style: TextStyle(
-                                color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {}, // Interceptor de gestos para evitar toques en el mapa detrás
+              child: Container(
+                height: 48,
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(22),
+                        onTap: () => setState(() => _showPeopleDiscovery = false),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          decoration: BoxDecoration(
+                            color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Reservas en Mapa',
+                                style: TextStyle(
+                                  color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: () => setState(() => _showPeopleDiscovery = true),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        decoration: BoxDecoration(
-                          color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        alignment: Alignment.center,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Descubrir Personas',
-                              style: TextStyle(
-                                color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(22),
+                        onTap: () => setState(() => _showPeopleDiscovery = true),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          decoration: BoxDecoration(
+                            color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Descubrir Personas',
+                                style: TextStyle(
+                                  color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1974,316 +1986,298 @@ class DiscoverPageState extends State<DiscoverPage> {
               curve: Curves.easeInOut,
               bottom: _selectedReservation != null ? 236 : 102,
               right: 16,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PublishReservationPage(
-                          onPublished: (loc) {
-                            if (loc != null) {
-                              moveToLocation(LatLng(loc.latitude, loc.longitude));
-                            }
-                            _listenToReservations();
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(25),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.35), width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.14),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_circle, color: AppColors.primary, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Hacer reserva',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {},
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PublishReservationPage(
+                            onPublished: (loc) {
+                              if (loc != null) {
+                                moveToLocation(LatLng(loc.latitude, loc.longitude));
+                              }
+                              _listenToReservations();
+                            },
                           ),
                         ),
-                      ],
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(25),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(25),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.35), width: 1.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.14),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add_circle, color: AppColors.primary, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Publicar reserva',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
 
-            // Ventana flotante de la reserva seleccionada (arriba de la barra del menú central)
-            if (_selectedReservation != null)
+            // Carrusel horizontal inferior de reservas (arriba de la barra del menú)
+            if (_reservationsList.isNotEmpty && _selectedReservation != null)
               Positioned(
-                bottom: 102,
-                left: 16,
-                right: 16,
-                child: GestureDetector(
-                  onHorizontalDragEnd: (details) {
-                    if (details.primaryVelocity != null) {
-                      if (details.primaryVelocity! < -100) {
-                        _goToNextReservation();
-                      } else if (details.primaryVelocity! > 100) {
-                        _goToPrevReservation();
-                      }
-                    }
-                  },
-                  onTap: () {
-                    _openReservationDetails(_selectedReservation!);
-                  },
-                  child: Container(
-                    height: 122,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.18),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Row(
-                        children: [
-                          // Foto del restaurante/lugar
-                          SizedBox(
-                            width: 105,
-                            height: 122,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                Image.network(
-                                  _selectedReservation!.restaurantPhoto,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Image.network(
-                                    _resolveRestaurantPhoto({}, _selectedReservation!.planType, _selectedReservation!.id),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: const Color(0xFF2C3437),
-                                      child: const Icon(Icons.restaurant, color: Colors.white70, size: 30),
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 8,
-                                  left: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.65),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      _getPlanIcon(_selectedReservation!.planType),
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
+                bottom: 96,
+                left: 0,
+                right: 0,
+                child: SizedBox(
+                  height: 122,
+                  child: PageView.builder(
+                    controller: _carouselPageController,
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: _reservationsList.length,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _selectedReservationIndex = index;
+                        _selectedReservation = _reservationsList[index];
+                      });
+                      _smoothPanTo(_reservationsList[index].latLng);
+                    },
+                    itemBuilder: (context, index) {
+                      final item = _reservationsList[index];
+                      final isCurrentSelected = (index == _selectedReservationIndex);
+
+                      return AnimatedScale(
+                        duration: const Duration(milliseconds: 200),
+                        scale: isCurrentSelected ? 1.0 : 0.96,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _openReservationDetails(item);
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(isCurrentSelected ? 0.18 : 0.10),
+                                  blurRadius: isCurrentSelected ? 16 : 8,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
-                          ),
-
-                          // Contenido info reserva
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Row(
                                 children: [
-                                  // Fila 1: Nombre del lugar + Flechas entre citas + Botón cerrar (X)
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          _selectedReservation!.placeName,
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w800,
-                                            color: AppColors.textPrimary,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      // Flechas para desplazarse entre citas
-                                      if (_reservationsList.length > 1) ...[
-                                        Container(
-                                          height: 27,
-                                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF1F3F5),
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(color: Colors.black.withOpacity(0.06)),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              GestureDetector(
-                                                onTap: _goToPrevReservation,
-                                                child: const Padding(
-                                                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-                                                  child: Icon(Icons.chevron_left_rounded, size: 19, color: Color(0xFF1E242B)),
-                                                ),
-                                              ),
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 2),
-                                                child: Text(
-                                                  '${_selectedReservationIndex + 1}/${_reservationsList.length}',
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF2C3437),
-                                                  ),
-                                                ),
-                                              ),
-                                              GestureDetector(
-                                                onTap: _goToNextReservation,
-                                                child: const Padding(
-                                                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-                                                  child: Icon(Icons.chevron_right_rounded, size: 19, color: Color(0xFF1E242B)),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                      ],
-                                      // Botón cerrar (X)
-                                      GestureDetector(
-                                        onTap: () {
-                                          setState(() {
-                                            _selectedReservation = null;
-                                          });
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.withOpacity(0.15),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(Icons.close, size: 15, color: AppColors.textSecondary),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  // Fila 2: Plan + Fecha y Hora completa (ocupa todo el ancho, nunca se corta con ...)
-                                  Row(
-                                    children: [
-                                      Icon(Icons.access_time_rounded, size: 13, color: AppColors.primary.withOpacity(0.9)),
-                                      const SizedBox(width: 5),
-                                      Expanded(
-                                        child: RichText(
-                                          maxLines: 1,
-                                          overflow: TextOverflow.visible,
-                                          text: TextSpan(
-                                            children: [
-                                              TextSpan(
-                                                text: _selectedReservation!.planType,
-                                                style: const TextStyle(
-                                                  fontSize: 11.5,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: Color(0xFF1E242B),
-                                                ),
-                                              ),
-                                              const TextSpan(
-                                                text: ' • ',
-                                                style: TextStyle(
-                                                  fontSize: 11.5,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: AppColors.textSecondary,
-                                                ),
-                                              ),
-                                              TextSpan(
-                                                text: _selectedReservation!.formattedDate,
-                                                style: const TextStyle(
-                                                  fontSize: 11.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Color(0xFF4B5563),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  // Fila inferior: Host avatar, nombre y botón "Ver cita"
-                                  Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 13,
-                                        backgroundImage: _selectedReservation!.hostPhoto.isNotEmpty
-                                            ? NetworkImage(_selectedReservation!.hostPhoto)
-                                            : null,
-                                        backgroundColor: Colors.grey[300],
-                                        child: _selectedReservation!.hostPhoto.isEmpty
-                                            ? const Icon(Icons.person, size: 14, color: Colors.white)
-                                            : null,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _selectedReservation!.hostName,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.textPrimary,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      GestureDetector(
-                                        onTap: () {
-                                          _openReservationDetails(_selectedReservation!);
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.primary,
-                                            borderRadius: BorderRadius.circular(14),
-                                          ),
-                                          child: const Text(
-                                            'Ver cita',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.bold,
+                                  // Foto del restaurante/lugar
+                                  SizedBox(
+                                    width: 105,
+                                    height: 122,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        Image.network(
+                                          item.restaurantPhoto,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Image.network(
+                                            _resolveRestaurantPhoto({}, item.planType, item.id),
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => Container(
+                                              color: const Color(0xFF2C3437),
+                                              child: const Icon(Icons.restaurant, color: Colors.white70, size: 30),
                                             ),
                                           ),
                                         ),
+                                        Positioned(
+                                          top: 8,
+                                          left: 8,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.65),
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: Text(
+                                              _getPlanIcon(item.planType),
+                                              style: const TextStyle(fontSize: 12),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Contenido info reserva
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          // Fila 1: Nombre del lugar + Indicador de posición (ej. 1/5)
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  item.placeName,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: AppColors.textPrimary,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              if (_reservationsList.length > 1) ...[
+                                                const SizedBox(width: 4),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFF1F5F9),
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                  child: Text(
+                                                    '${index + 1}/${_reservationsList.length}',
+                                                    style: const TextStyle(
+                                                      fontSize: 10.5,
+                                                      fontWeight: FontWeight.w800,
+                                                      color: Color(0xFF64748B),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+
+                                          // Filas 2 y 3: Renglón 1 = Fecha / Renglón 2 = Hora (sin etiqueta de categoría)
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              // Renglón 1: Fecha
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.calendar_today_rounded, size: 12, color: AppColors.primary),
+                                                  const SizedBox(width: 5),
+                                                  Expanded(
+                                                    child: Text(
+                                                      item.displayDate.isNotEmpty ? item.displayDate : item.formattedDate,
+                                                      style: const TextStyle(
+                                                        fontSize: 11.5,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: Color(0xFF1E293B),
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 2),
+                                              // Renglón 2: Hora
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.access_time_rounded, size: 12, color: Colors.grey[600]),
+                                                  const SizedBox(width: 5),
+                                                  Expanded(
+                                                    child: Text(
+                                                      item.displayTime.isNotEmpty ? item.displayTime : 'Hora por confirmar',
+                                                      style: TextStyle(
+                                                        fontSize: 11.5,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: Colors.grey[700],
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+
+                                          // Fila inferior: Host avatar, nombre y botón "Ver cita"
+                                          Row(
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 12,
+                                                backgroundImage: item.hostPhoto.isNotEmpty
+                                                    ? NetworkImage(item.hostPhoto)
+                                                    : null,
+                                                backgroundColor: Colors.grey[300],
+                                                child: item.hostPhoto.isEmpty
+                                                    ? const Icon(Icons.person, size: 13, color: Colors.white)
+                                                    : null,
+                                              ),
+                                              const SizedBox(width: 7),
+                                              Expanded(
+                                                child: Text(
+                                                  item.hostName,
+                                                  style: const TextStyle(
+                                                    fontSize: 12.5,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.textPrimary,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              GestureDetector(
+                                                onTap: () {
+                                                  _openReservationDetails(item);
+                                                },
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.primary,
+                                                    borderRadius: BorderRadius.circular(12),
+                                                  ),
+                                                  child: const Text(
+                                                    'Ver cita',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

@@ -126,7 +126,7 @@ class MapTutorialOverlay extends StatelessWidget {
                           _buildCallout(
                             iconWidget: const Icon(Icons.calendar_month, color: Color(0xFF212121), size: 22),
                             title: 'Publica tu Reserva',
-                            description: 'Usa el botón de hacer reserva para subir tu mesa y recibir solicitudes.',
+                            description: 'Usa el botón de publicar reserva para subir tu mesa y recibir solicitudes.',
                           ),
                           const SizedBox(height: 8),
                           _buildCallout(

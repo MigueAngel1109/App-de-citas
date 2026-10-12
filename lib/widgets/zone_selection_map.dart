@@ -3,9 +3,30 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../utils/app_colors.dart';
 import '../utils/zone_data.dart';
 
-/// Mapa interactivo de selección de zonas de preferencia.
-/// Mismo estilo visual limpio que el mapa de reservas, sin marcadores invasivos
-/// y con una hoja modal de filtro desplegable para evitar conflictos de gestos con el mapa.
+/// Modelo de ítem de zona para el selector jerárquico
+class ZoneItem {
+  final String id;
+  final String title;
+  final String subtitle;
+
+  const ZoneItem({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+  });
+}
+
+/// Selector de Zonas y Preferencias Geográficas
+/// Layout de Pantalla Dividida (Split View):
+/// - Mitad Superior: Mapa monocromático en escala de grises, sin etiquetas ni POIs, operado con 1 dedo y zoom fijo.
+/// - Mitad Inferior: Lista deslizable con checkboxes organizados jerárquicamente:
+///     * Bogotá D.C. (con toggle master "Seleccionar toda Bogotá" y expansión/colapso de zonas)
+///     * Sabana Norte (Cota, Chía, Cajicá agrupadas)
+///     * Sabana Occidente (Mosquera, Madrid agrupadas)
+///     * Sur (Soacha)
+/// - Pie de Página: Botón persistente 'Guardar' (sticky bottom button).
+/// - Estilo visual de polígonos: Borde #4A4A4A y relleno translúcido suave al marcar la zona.
+/// - Prevención de propagación de eventos táctiles con hitTestBehavior opaque.
 class ZoneSelectionMap extends StatefulWidget {
   final Set<String> initialSelectedZones;
 
@@ -19,60 +40,92 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
   final Set<String> _selectedZones = {};
   GoogleMapController? _mapController;
   Map<String, LatLng> _centroids = {};
+  bool _bogotaExpanded = true;
 
-  static const List<Map<String, String>> _zoneInfoList = [
-    {'name': 'Chapinero', 'desc': 'Zona Rosa, Zona G, Parque 93, Quinta Camacho'},
-    {'name': 'Usaquén', 'desc': 'Santa Bárbara, Cedritos, Usaquén Histórico'},
-    {'name': 'Teusaquillo', 'desc': 'Park Way, La Soledad, Galerías, Salitre'},
-    {'name': 'Suba', 'desc': 'La Colina, Niza, Suba Centro'},
-    {'name': 'Santa Fe', 'desc': 'La Macarena, Torres del Parque, Centro Internacional'},
-    {'name': 'La Candelaria', 'desc': 'Centro Histórico, Chorro de Quevedo, Museos'},
-    {'name': 'Barrios Unidos', 'desc': 'El Lago, Polo, 7 de Agosto, Alcázares'},
-    {'name': 'Fontibón', 'desc': 'Ciudad Salitre Occidental, Modelia, Hayuelos'},
-    {'name': 'Engativá', 'desc': 'Normandía, Álamos, Minuto de Dios, Boyacá Real'},
-    {'name': 'Kennedy', 'desc': 'Américas, Castilla, Timiza, Plaza de las Américas'},
-    {'name': 'Puente Aranda', 'desc': 'Ciudad Montes, Industrial Centenario'},
-    {'name': 'Los Mártires', 'desc': 'Eduardo Santos, Santa Isabel, La Pepita'},
-    {'name': 'Antonio Nariño', 'desc': 'Restrepo, Santander, Ciudad Berna'},
-    {'name': 'San Cristóbal', 'desc': '20 de Julio, Suroriente, San Blas'},
-    {'name': 'Usme', 'desc': 'Usme Pueblo, La Flora, Santa Librada'},
-    {'name': 'Tunjuelito', 'desc': 'Venecia, San Vicente, Tunal'},
-    {'name': 'Bosa', 'desc': 'Bosa Centro, El Recreo, Porvenir'},
-    {'name': 'Rafael Uribe Uribe', 'desc': 'Quiroga, Olaya, Gustavo Restrepo'},
-    {'name': 'Ciudad Bolívar', 'desc': 'TransMiCable, El Ensueño, Candelaria La Nueva'},
-    {'name': 'Sumapaz', 'desc': 'Páramo de Sumapaz, Región rural'},
+  // Zonas operativas de Bogotá estructuradas y fusionadas (8 macrozonas operativas)
+  static const List<ZoneItem> _bogotaZones = [
+    ZoneItem(
+      id: 'Chapinero Central',
+      title: 'Chapinero Central',
+      subtitle: 'Zona Rosa, Zona G, Parque 93, Quinta Camacho, Barrios Unidos',
+    ),
+    ZoneItem(
+      id: 'Usaquén',
+      title: 'Usaquén',
+      subtitle: 'Santa Bárbara, Cedritos, Usaquén Histórico',
+    ),
+    ZoneItem(
+      id: 'Galerías - Teusaquillo',
+      title: 'Galerías - Teusaquillo',
+      subtitle: 'Park Way, Galerías, Salitre, Puente Aranda, Antonio Nariño',
+    ),
+    ZoneItem(
+      id: 'Centro Histórico',
+      title: 'Centro Histórico',
+      subtitle: 'La Candelaria, Santa Fe, La Macarena, Los Mártires',
+    ),
+    ZoneItem(
+      id: 'Suba',
+      title: 'Suba',
+      subtitle: 'La Colina, Niza, Suba Centro',
+    ),
+    ZoneItem(
+      id: 'Occidente (Engativá - Fontibón)',
+      title: 'Occidente (Engativá - Fontibón)',
+      subtitle: 'Normandía, Modelia, Salitre Occ., Hayuelos, Álamos',
+    ),
+    ZoneItem(
+      id: 'Suroccidente (Kennedy - Bosa)',
+      title: 'Suroccidente (Kennedy - Bosa)',
+      subtitle: 'Américas, Castilla, Timiza, Bosa Centro, Porvenir',
+    ),
+    ZoneItem(
+      id: 'Suroriente (Tunjuelito - San Cristóbal - Rafael Uribe)',
+      title: 'Suroriente (Tunjuelito - San Cristóbal - Rafael Uribe)',
+      subtitle: 'Venecia, Tunal, 20 de Julio, Quiroga, Olaya',
+    ),
   ];
 
-  static const String _cleanMapStyle = '''
+  // Municipios Aledaños agrupados por subregiones
+  static const List<ZoneItem> _surroundingZones = [
+    ZoneItem(
+      id: 'Sabana Norte',
+      title: 'Sabana Norte',
+      subtitle: 'Chía • Cota • Cajicá',
+    ),
+    ZoneItem(
+      id: 'Sabana Occidente',
+      title: 'Sabana Occidente',
+      subtitle: 'Mosquera • Madrid',
+    ),
+    ZoneItem(
+      id: 'Sur (Soacha)',
+      title: 'Sur',
+      subtitle: 'Soacha',
+    ),
+  ];
+
+  /// Estilo de mapa monocromático/escala de grises sin etiquetas de texto ni POIs
+  static const String _monochromeMapStyle = '''
   [
     {
       "elementType": "geometry",
-      "stylers": [{ "color": "#f5f6f8" }]
+      "stylers": [{ "color": "#f0f1f3" }]
+    },
+    {
+      "elementType": "labels",
+      "stylers": [{ "visibility": "off" }]
     },
     {
       "elementType": "labels.icon",
       "stylers": [{ "visibility": "off" }]
     },
     {
-      "elementType": "labels.text.fill",
-      "stylers": [{ "color": "#5b616c" }]
-    },
-    {
-      "elementType": "labels.text.stroke",
-      "stylers": [{ "color": "#ffffff" }, { "weight": 2 }]
+      "elementType": "labels.text",
+      "stylers": [{ "visibility": "off" }]
     },
     {
       "featureType": "administrative",
-      "elementType": "geometry",
-      "stylers": [{ "visibility": "off" }]
-    },
-    {
-      "featureType": "administrative.neighborhood",
-      "elementType": "geometry",
-      "stylers": [{ "visibility": "off" }]
-    },
-    {
-      "featureType": "administrative.land_parcel",
       "stylers": [{ "visibility": "off" }]
     },
     {
@@ -80,22 +133,13 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
       "stylers": [{ "visibility": "off" }]
     },
     {
-      "featureType": "poi.park",
-      "elementType": "geometry",
-      "stylers": [{ "color": "#f5f6f8" }]
-    },
-    {
       "featureType": "road",
       "elementType": "geometry",
       "stylers": [{ "color": "#ffffff" }]
     },
     {
-      "featureType": "road.arterial",
+      "featureType": "road",
       "elementType": "labels",
-      "stylers": [{ "visibility": "off" }]
-    },
-    {
-      "featureType": "road.local",
       "stylers": [{ "visibility": "off" }]
     },
     {
@@ -105,32 +149,12 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
     {
       "featureType": "landscape",
       "elementType": "geometry",
-      "stylers": [{ "color": "#cdd1d8" }]
-    },
-    {
-      "featureType": "landscape.man_made",
-      "elementType": "geometry",
-      "stylers": [
-        { "color": "#cdd1d8" },
-        { "visibility": "on" }
-      ]
-    },
-    {
-      "featureType": "landscape.natural",
-      "elementType": "geometry",
-      "stylers": [
-        { "color": "#f5f6f8" },
-        { "visibility": "on" }
-      ]
-    },
-    {
-      "featureType": "landscape.natural.terrain",
-      "stylers": [{ "visibility": "off" }]
+      "stylers": [{ "color": "#e5e7eb" }]
     },
     {
       "featureType": "water",
       "elementType": "geometry",
-      "stylers": [{ "color": "#e2e6ea" }]
+      "stylers": [{ "color": "#d5dbe1" }]
     }
   ]
   ''';
@@ -138,8 +162,39 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
   @override
   void initState() {
     super.initState();
-    _selectedZones.addAll(widget.initialSelectedZones);
+    _migrateAndInitSelectedZones();
     _calculateCentroids();
+  }
+
+  /// Migra selecciones antiguas a las nuevas macrozonas y zonas operativas
+  void _migrateAndInitSelectedZones() {
+    for (final rawZone in widget.initialSelectedZones) {
+      if (rawZone == 'Ciudad Bolívar' || rawZone == 'Usme' || rawZone == 'Sumapaz') {
+        // Descartadas por la poda geográfica
+        continue;
+      }
+      if (rawZone == 'Chapinero' || rawZone == 'Barrios Unidos') {
+        _selectedZones.add('Chapinero Central');
+      } else if (rawZone == 'Teusaquillo' || rawZone == 'Puente Aranda' || rawZone == 'Antonio Nariño') {
+        _selectedZones.add('Galerías - Teusaquillo');
+      } else if (rawZone == 'La Candelaria' || rawZone == 'Santa Fe' || rawZone == 'Los Mártires') {
+        _selectedZones.add('Centro Histórico');
+      } else if (rawZone == 'Fontibón' || rawZone == 'Engativá' || rawZone == 'Occidente (Engativá - Fontibón)') {
+        _selectedZones.add('Occidente (Engativá - Fontibón)');
+      } else if (rawZone == 'Kennedy' || rawZone == 'Bosa' || rawZone == 'Suroccidente (Kennedy - Bosa)') {
+        _selectedZones.add('Suroccidente (Kennedy - Bosa)');
+      } else if (rawZone == 'Tunjuelito' || rawZone == 'San Cristóbal' || rawZone == 'Rafael Uribe Uribe' || rawZone == 'Suroriente (Tunjuelito - San Cristóbal - Rafael Uribe)') {
+        _selectedZones.add('Suroriente (Tunjuelito - San Cristóbal - Rafael Uribe)');
+      } else if (rawZone == 'Chía' || rawZone == 'Cota' || rawZone == 'Cajicá') {
+        _selectedZones.add('Sabana Norte');
+      } else if (rawZone == 'Mosquera' || rawZone == 'Madrid') {
+        _selectedZones.add('Sabana Occidente');
+      } else if (rawZone == 'Soacha') {
+        _selectedZones.add('Sur (Soacha)');
+      } else {
+        _selectedZones.add(rawZone);
+      }
+    }
   }
 
   @override
@@ -150,36 +205,58 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
 
   void _calculateCentroids() {
     _centroids = {};
-    for (final entry in ZoneData.polygons.entries) {
-      if (entry.value.isEmpty) continue;
+    for (final zoneItem in [..._bogotaZones, ..._surroundingZones]) {
+      final polyLists = ZoneData.getPolygonsForZone(zoneItem.id);
+      if (polyLists.isEmpty) continue;
       double latSum = 0;
       double lngSum = 0;
-      for (final p in entry.value) {
-        latSum += p.latitude;
-        lngSum += p.longitude;
+      int totalPoints = 0;
+      for (final poly in polyLists) {
+        for (final p in poly) {
+          latSum += p.latitude;
+          lngSum += p.longitude;
+          totalPoints++;
+        }
       }
-      _centroids[entry.key] = LatLng(
-        latSum / entry.value.length,
-        lngSum / entry.value.length,
-      );
+      if (totalPoints > 0) {
+        _centroids[zoneItem.id] = LatLng(latSum / totalPoints, lngSum / totalPoints);
+      }
     }
   }
 
-  void _toggleZone(String zoneName) {
+  bool get _isAllBogotaSelected {
+    return _bogotaZones.every((z) => _selectedZones.contains(z.id));
+  }
+
+  void _toggleAllBogota() {
     setState(() {
-      if (_selectedZones.contains(zoneName)) {
-        _selectedZones.remove(zoneName);
+      if (_isAllBogotaSelected) {
+        for (final z in _bogotaZones) {
+          _selectedZones.remove(z.id);
+        }
       } else {
-        _selectedZones.add(zoneName);
+        for (final z in _bogotaZones) {
+          _selectedZones.add(z.id);
+        }
       }
     });
   }
 
-  void _focusOnZone(String zoneName) {
-    final centroid = _centroids[zoneName];
+  void _toggleZone(String zoneId) {
+    setState(() {
+      if (_selectedZones.contains(zoneId)) {
+        _selectedZones.remove(zoneId);
+      } else {
+        _selectedZones.add(zoneId);
+      }
+    });
+  }
+
+  void _focusOnZone(String zoneId) {
+    final centroid = _centroids[zoneId];
     if (centroid != null && _mapController != null) {
       _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(centroid, 12.8),
+        CameraUpdate.newLatLng(centroid),
       );
     }
   }
@@ -187,434 +264,453 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
   Set<Polygon> _buildPolygons() {
     final Set<Polygon> polygons = {};
 
-    for (final entry in ZoneData.polygons.entries) {
-      final zoneName = entry.key;
-      final isSelected = _selectedZones.contains(zoneName);
+    // Líneas de trazo en gris para definir claramente las divisiones de las zonas
+    const activeBorder = Color(0xFF4B5563);   // Gris medio oscuro para zona seleccionada
+    const inactiveBorder = Color(0xFF9CA3AF); // Gris medio neutro para ver la división
 
-      polygons.add(
-        Polygon(
-          polygonId: PolygonId(zoneName),
-          points: entry.value,
-          fillColor: isSelected
-              ? AppColors.primary.withOpacity(0.24)
-              : Colors.black.withOpacity(0.04),
-          strokeColor: isSelected ? AppColors.primary : Colors.black45,
-          strokeWidth: isSelected ? 3 : 1,
-          consumeTapEvents: true,
-          onTap: () => _toggleZone(zoneName),
-        ),
-      );
+    for (final zoneItem in [..._bogotaZones, ..._surroundingZones]) {
+      final isSelected = _selectedZones.contains(zoneItem.id);
+      final polyLists = ZoneData.getPolygonsForZone(zoneItem.id);
+
+      for (int i = 0; i < polyLists.length; i++) {
+        final pts = polyLists[i];
+        polygons.add(
+          Polygon(
+            polygonId: PolygonId('${zoneItem.id}_$i'),
+            points: pts,
+            fillColor: isSelected
+                ? const Color(0xFF4B5563).withOpacity(0.22)
+                : const Color(0xFF4B5563).withOpacity(0.03),
+            strokeColor: isSelected ? activeBorder : inactiveBorder,
+            strokeWidth: isSelected ? 2 : 1,
+            consumeTapEvents: true,
+            onTap: () => _toggleZone(zoneItem.id),
+          ),
+        );
+      }
     }
 
     return polygons;
   }
 
-  /// Despliega la hoja modal con el filtro y listado completo de zonas
-  void _openFilterBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        String filterQuery = '';
-        return StatefulBuilder(
-          builder: (modalContext, setModalState) {
-            final filtered = _zoneInfoList.where((loc) {
-              final name = loc['name']!;
-              final desc = loc['desc']!;
-              final q = filterQuery.toLowerCase().trim();
-              if (q.isEmpty) return true;
-              return name.toLowerCase().contains(q) || desc.toLowerCase().contains(q);
-            }).toList();
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    // Ampliado un 25% (de 0.40 a 0.50 de la pantalla), dando más protagonismo al mapa y reduciendo la lista de zonas
+    final mapHeight = (screenHeight * 0.50).clamp(300.0, 480.0);
 
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.72,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+          onPressed: () => Navigator.pop(context, _selectedZones),
+        ),
+        title: const Text(
+          'Zonas de Preferencia',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        centerTitle: true,
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() {
+                if (_selectedZones.isNotEmpty) {
+                  _selectedZones.clear();
+                } else {
+                  for (final z in _bogotaZones) {
+                    _selectedZones.add(z.id);
+                  }
+                  for (final z in _surroundingZones) {
+                    _selectedZones.add(z.id);
+                  }
+                }
+              });
+            },
+            child: Text(
+              _selectedZones.isNotEmpty ? 'Limpiar' : 'Todas',
+              style: const TextStyle(
+                color: Color(0xFF4A4A4A),
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
               ),
-              child: Column(
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Column(
+        children: [
+          // ==========================================
+          // MITAD SUPERIOR: MAPA ESTILIZADO MONOCROMÁTICO
+          // Zoom bloqueado/estático, operado con 1 dedo
+          // ==========================================
+          SizedBox(
+            height: mapHeight,
+            width: double.infinity,
+            child: ClipRect(
+              child: Stack(
                 children: [
-                  // Tirador superior
-                  const SizedBox(height: 10),
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
+                  Positioned.fill(
+                    child: GoogleMap(
+                      initialCameraPosition: const CameraPosition(
+                        target: LatLng(4.6850, -74.0750),
+                        zoom: 10.6,
+                      ),
+                      myLocationEnabled: false,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false, // Sin botones invasivos de Google
+                      zoomGesturesEnabled: true,  // Aumentar o disminuir libremente con dos dedos (pinch-to-zoom)
+                      scrollGesturesEnabled: true, // Moverse con un dedo
+                      rotateGesturesEnabled: false,
+                      tiltGesturesEnabled: false,
+                      mapToolbarEnabled: false,
+                      compassEnabled: false,
+                      indoorViewEnabled: false,
+                      trafficEnabled: false,
+                      style: _monochromeMapStyle,
+                      polygons: _buildPolygons(),
+                      markers: const {},
+                      onMapCreated: (GoogleMapController controller) {
+                        _mapController = controller;
+                      },
                     ),
                   ),
-                  const SizedBox(height: 12),
-
-                  // Título y acciones rápidas
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                // Indicador visual flotante discreto sobre el mapa
+                Positioned(
+                  top: 10,
+                  left: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.tune_rounded, color: AppColors.primary, size: 22),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Filtrar Zonas de Bogotá',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF4A4A4A),
+                            shape: BoxShape.circle,
                           ),
                         ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () {
-                            setModalState(() {
-                              setState(() {
-                                if (_selectedZones.length == _zoneInfoList.length) {
-                                  _selectedZones.clear();
-                                } else {
-                                  _selectedZones.addAll(_zoneInfoList.map((e) => e['name']!));
-                                }
-                              });
-                            });
-                          },
-                          child: Text(
-                            _selectedZones.length == _zoneInfoList.length ? 'Limpiar todas' : 'Elegir todas',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_selectedZones.length} ${_selectedZones.length == 1 ? "zona activa" : "zonas activas"}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF2C3437),
                           ),
                         ),
                       ],
                     ),
                   ),
+                ),
+              ],
+            ),
+          ),
+        ),
 
-                  // Barra de búsqueda dentro del filtro
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                    child: TextField(
-                      onChanged: (val) {
-                        setModalState(() {
-                          filterQuery = val;
-                        });
-                      },
-                      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
-                      decoration: InputDecoration(
-                        hintText: 'Buscar localidad o barrio (ej. Chapinero, 93)...',
-                        hintStyle: const TextStyle(fontSize: 13, color: AppColors.textLight),
-                        prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
-                        filled: true,
-                        fillColor: const Color(0xFFF3F5F8),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+
+          // ==========================================
+          // MITAD INFERIOR: LISTA DESLIZABLE CON CHECKBOXES
+          // ==========================================
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              children: [
+                // ------------------------------------
+                // SECCIÓN: BOGOTÁ D.C. (MASTER CHECKBOX + EXPANDIBLE)
+                // ------------------------------------
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: _isAllBogotaSelected ? const Color(0xFF4A4A4A) : const Color(0xFFE5E7EB),
+                      width: _isAllBogotaSelected ? 1.4 : 1,
                     ),
                   ),
-
-                  const Divider(height: 1),
-
-                  // Lista vertical de localidades con checkboxes
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No se encontró "$filterQuery"',
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 6),
-                            itemBuilder: (context, i) {
-                              final item = filtered[i];
-                              final zoneName = item['name']!;
-                              final zoneDesc = item['desc']!;
-                              final isSelected = _selectedZones.contains(zoneName);
-
-                              return InkWell(
-                                onTap: () {
-                                  setModalState(() {
-                                    _toggleZone(zoneName);
+                  child: Column(
+                    children: [
+                      // Encabezado maestro de Bogotá D.C.
+                      InkWell(
+                        onTap: _toggleAllBogota,
+                        borderRadius: BorderRadius.vertical(
+                          top: const Radius.circular(18),
+                          bottom: _bogotaExpanded ? Radius.zero : const Radius.circular(18),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          child: Row(
+                            children: [
+                              _buildCheckbox(
+                                isChecked: _isAllBogotaSelected,
+                                onTap: _toggleAllBogota,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Row(
+                                      children: [
+                                        Text(
+                                          'Bogotá D.C.',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Toda la ciudad',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Color(0xFF6B7280),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${_bogotaZones.where((z) => _selectedZones.contains(z.id)).length} de ${_bogotaZones.length} zonas seleccionadas',
+                                      style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7280)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Botón colapsar / desplegar zonas individuales
+                              IconButton(
+                                icon: Icon(
+                                  _bogotaExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                  color: const Color(0xFF4A4A4A),
+                                  size: 24,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _bogotaExpanded = !_bogotaExpanded;
                                   });
                                 },
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.primary.withOpacity(0.06) : Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: isSelected ? AppColors.primary : AppColors.inputBorder,
-                                      width: isSelected ? 1.5 : 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-                                        color: isSelected ? AppColors.primary : AppColors.textLight,
-                                        size: 22,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              zoneName,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: isSelected ? AppColors.primary : AppColors.textPrimary,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              zoneDesc,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      // Botón para volar el mapa a la zona
-                                      IconButton(
-                                        icon: const Icon(Icons.my_location_rounded, size: 18, color: AppColors.textSecondary),
-                                        tooltip: 'Ver en mapa',
-                                        onPressed: () {
-                                          Navigator.pop(ctx);
-                                          _focusOnZone(zoneName);
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-
-                  // Botón Listo / Aplicar en el filtro
-                  SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            elevation: 0,
-                          ),
-                          child: Text(
-                            'Aplicar (${_selectedZones.length} seleccionadas)',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                            ],
                           ),
                         ),
                       ),
+
+                      // Lista desplegada de zonas de Bogotá
+                      if (_bogotaExpanded) ...[
+                        const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                          itemCount: _bogotaZones.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, thickness: 0.5, color: Color(0xFFF0F2F5)),
+                          itemBuilder: (context, index) {
+                            final zone = _bogotaZones[index];
+                            final isChecked = _selectedZones.contains(zone.id);
+                            return _buildZoneTile(
+                              zone: zone,
+                              isChecked: isChecked,
+                              onToggle: () => _toggleZone(zone.id),
+                              onFocus: () => _focusOnZone(zone.id),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // ------------------------------------
+                // SECCIÓN: MUNICIPIOS ALEDAÑOS
+                // ------------------------------------
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: Text(
+                    'Municipios Aledaños',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF6B7280),
+                      letterSpacing: 0.4,
                     ),
                   ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+                ),
+                const SizedBox(height: 6),
+
+                // Lista de municipios aledaños
+                ..._surroundingZones.map((zone) {
+                  final isChecked = _selectedZones.contains(zone.id);
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isChecked ? const Color(0xFF4A4A4A) : const Color(0xFFE5E7EB),
+                        width: isChecked ? 1.4 : 1,
+                      ),
+                    ),
+                    child: _buildZoneTile(
+                      zone: zone,
+                      isChecked: isChecked,
+                      onToggle: () => _toggleZone(zone.id),
+                      onFocus: () => _focusOnZone(zone.id),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+
+          // ==========================================
+          // PIE DE PÁGINA: BOTÓN PERSISTENTE 'GUARDAR'
+          // Sticky Bottom Button idéntico a la referencia
+          // ==========================================
+          _buildStickyBottomButton(context),
+        ],
+      ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final topPadding = MediaQuery.of(context).padding.top;
-    final topOffset = topPadding > 0 ? topPadding : 16.0;
-
-    return Scaffold(
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 1. Google Map interactivo idéntico al mapa de reservas (sin puntos rojos invasivos)
-          GoogleMap(
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(4.6533, -74.0836),
-              zoom: 11.5,
-            ),
-            myLocationEnabled: false,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            compassEnabled: false,
-            indoorViewEnabled: false,
-            trafficEnabled: false,
-            scrollGesturesEnabled: true,
-            zoomGesturesEnabled: true,
-            rotateGesturesEnabled: false,
-            tiltGesturesEnabled: false,
-            style: _cleanMapStyle,
-            polygons: _buildPolygons(),
-            markers: const {}, // Puntos rojos eliminados
-            onMapCreated: (GoogleMapController controller) {
-              _mapController = controller;
-            },
+  /// Checkbox con estilo limpio y elegante en gris oscuro suave
+  Widget _buildCheckbox({required bool isChecked, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 22,
+        height: 22,
+        decoration: BoxDecoration(
+          color: isChecked ? const Color(0xFF4B5563) : Colors.white,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isChecked ? const Color(0xFF4B5563) : const Color(0xFF9CA3AF),
+            width: 1.8,
           ),
+        ),
+        child: isChecked
+            ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+            : null,
+      ),
+    );
+  }
 
-          // 2. Barra Superior Flotante: Volver + Título + Botón de Filtro
-          Positioned(
-            top: topOffset + 10,
-            left: 16,
-            right: 16,
-            child: Container(
-              height: 52,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(26),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.14),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
+  /// Tile individual de zona con checkbox, título, descripción y botón centrar
+  Widget _buildZoneTile({
+    required ZoneItem zone,
+    required bool isChecked,
+    required VoidCallback onToggle,
+    required VoidCallback onFocus,
+  }) {
+    return InkWell(
+      onTap: onToggle,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            _buildCheckbox(isChecked: isChecked, onTap: onToggle),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 18),
-                    onPressed: () => Navigator.pop(context, _selectedZones),
-                  ),
-                  const SizedBox(width: 4),
-                  const Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Zonas de Preferencia',
-                          style: TextStyle(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'Toca en el mapa o abre el filtro',
-                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                      ],
+                  Text(
+                    zone.title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: isChecked ? FontWeight.w800 : FontWeight.w600,
+                      color: isChecked ? const Color(0xFF111111) : const Color(0xFF374151),
                     ),
                   ),
-                  // Botón que saca el filtro de zonas
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _openFilterBottomSheet,
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.tune_rounded, color: Colors.white, size: 16),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Filtrar (${_selectedZones.length})',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    zone.subtitle,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF6B7280),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                ],
-              ),
-            ),
-          ),
-
-          // 3. Panel Inferior Flotante de Confirmación
-          Positioned(
-            bottom: 24,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${_selectedZones.length} ${_selectedZones.length == 1 ? "zona seleccionada" : "zonas seleccionadas"}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        InkWell(
-                          onTap: _openFilterBottomSheet,
-                          child: const Text(
-                            'Abrir lista de zonas ↗',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(context, _selectedZones),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      elevation: 2,
-                    ),
-                    child: const Text(
-                      'Guardar Zonas',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
+            IconButton(
+              icon: const Icon(Icons.my_location_rounded, size: 18, color: Color(0xFF9CA3AF)),
+              tooltip: 'Ubicar en mapa',
+              onPressed: onFocus,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Pie de página persistente con hitTestBehavior opaque para prevenir traspaso de toques al mapa
+  Widget _buildStickyBottomButton(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom > 0 ? MediaQuery.of(context).padding.bottom + 4 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
           ),
         ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 54,
+        child: ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context, _selectedZones);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF111111),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          child: Text(
+            'Guardar (${_selectedZones.length} ${_selectedZones.length == 1 ? "zona" : "zonas"})',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
       ),
     );
   }

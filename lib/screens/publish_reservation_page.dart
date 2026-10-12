@@ -165,6 +165,22 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       return DateTime(y, m, d);
     }
 
+    // 4. English month day: ej. "Oct 2", "October 2nd", "Fri, Oct 2 at 7:30 PM"
+    final engDateMatch = RegExp(
+      '\\b($monthNames)\\s+([0-2]?[0-9]|3[01])(?:st|nd|rd|th)?(?:\\s*,?\\s*(202[4-9]))?',
+      caseSensitive: false,
+    ).firstMatch(clean);
+
+    if (engDateMatch != null) {
+      final mName = engDateMatch.group(1)!.toLowerCase();
+      final m = monthMap[mName]!;
+      final d = int.parse(engDateMatch.group(2)!);
+      final yStr = engDateMatch.group(3);
+      final currentYear = DateTime.now().year;
+      final y = yStr != null ? int.parse(yStr) : (m < DateTime.now().month ? currentYear + 1 : currentYear);
+      return DateTime(y, m, d);
+    }
+
     return null;
   }
 
@@ -342,13 +358,12 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       // ==========================================
       else if (host.contains('opentable')) {
         platformDetected = 'OpenTable';
-        if (segments.isNotEmpty) {
-          String candidate = segments.last;
-          if (candidate.isEmpty && segments.length > 1) {
-            candidate = segments[segments.length - 2];
-          }
-          if (candidate != 'r' && candidate.isNotEmpty) {
-            detectedPlace = _cleanSlug(candidate);
+        for (var i = segments.length - 1; i >= 0; i--) {
+          final seg = segments[i].toLowerCase();
+          final isGeneric = seg == 'booking' || seg == 'confirmation' || seg == 'r' || seg == 'view' || seg == 'restref';
+          if (!stopWords.contains(seg) && seg.isNotEmpty && !isGeneric) {
+            detectedPlace = _cleanSlug(segments[i]);
+            break;
           }
         }
       }
@@ -359,31 +374,48 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         final k = entry.key.toLowerCase();
         final v = entry.value;
 
-        // Fecha / Hora combinada
-        if ((k == 'datetime' || k == 'dt' || k == 'reservationdatetime') && detectedDate == null) {
-          final parsed = DateTime.tryParse(v);
+        // Fecha / Hora combinada (ej: OpenTable dateTime=2026-10-02T19:30:00 o dateTime=2026-10-02T19%3A30%3A00)
+        if ((k == 'datetime' || k == 'dt' || k == 'reservationdatetime') && (detectedDate == null || detectedTime == null)) {
+          final cleanVal = Uri.decodeComponent(v);
+          final parsed = DateTime.tryParse(cleanVal) ?? DateTime.tryParse(v);
           if (parsed != null) {
-            detectedDate = parsed;
-            detectedTime = TimeOfDay(hour: parsed.hour, minute: parsed.minute);
+            detectedDate ??= DateTime(parsed.year, parsed.month, parsed.day);
+            detectedTime ??= TimeOfDay(hour: parsed.hour, minute: parsed.minute);
           }
         }
 
         // Fecha individual
         if ((k == 'date' || k == 'd' || k == 'fecha' || k == 'dia') && detectedDate == null) {
-          final parsed = _parseSpanishDate(v) ?? DateTime.tryParse(v);
+          final cleanVal = Uri.decodeComponent(v);
+          final parsed = _parseSpanishDate(cleanVal) ?? DateTime.tryParse(cleanVal) ?? _parseSpanishDate(v) ?? DateTime.tryParse(v);
           if (parsed != null) {
-            detectedDate = parsed;
+            detectedDate = DateTime(parsed.year, parsed.month, parsed.day);
           }
         }
 
         // Hora individual
         if ((k == 'time' || k == 't' || k == 'hora') && detectedTime == null) {
-          detectedTime = _parseTimeString(v);
+          final cleanVal = Uri.decodeComponent(v);
+          detectedTime = _parseTimeString(cleanVal) ?? _parseTimeString(v);
         }
 
         // Lugar en query si no se detectó antes
-        if ((k == 'place' || k == 'restaurant' || k == 'restaurante' || k == 'name') && detectedPlace == null) {
+        if ((k == 'place' || k == 'restaurant' || k == 'restaurante' || k == 'name' || k == 'restaurantname') && detectedPlace == null) {
           detectedPlace = _cleanSlug(v);
+        }
+      }
+
+      // Regex directo en el texto de la URL (por si queryParameters no lo decodificó o venía codificado)
+      if (detectedDate == null || detectedTime == null) {
+        final dtRegex = RegExp(r'[?&](?:datetime|dateTime|dt|reservationdatetime)=([^&]+)', caseSensitive: false);
+        final dtMatch = dtRegex.firstMatch(trimmed);
+        if (dtMatch != null) {
+          final rawVal = Uri.decodeComponent(dtMatch.group(1)!);
+          final parsed = DateTime.tryParse(rawVal);
+          if (parsed != null) {
+            detectedDate ??= DateTime(parsed.year, parsed.month, parsed.day);
+            detectedTime ??= TimeOfDay(hour: parsed.hour, minute: parsed.minute);
+          }
         }
       }
 
@@ -467,19 +499,42 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               }
 
               if (detectedPlace == null) {
-                // Caso Mesa 24/7 en markdown: suele venir en un heading: #### Afluente Restaurante
-                final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(text);
-                for (final hm in headingMatches) {
-                  final cand = hm.group(1)?.trim();
-                  if (cand != null &&
-                      cand.isNotEmpty &&
-                      cand.length < 50 &&
-                      !cand.toLowerCase().contains('comparte') &&
-                      !cand.toLowerCase().contains('reserva') &&
-                      !cand.toLowerCase().contains('mesa 24/7') &&
-                      !cand.toLowerCase().contains('image')) {
+                // Caso OpenTable en markdown: "Your Reservation at Capitalino Restaurant" o enlace a /r/slug
+                final otResMatch = RegExp(r'Your Reservation at\s+([^|\n\r#]+)', caseSensitive: false).firstMatch(text);
+                if (otResMatch != null) {
+                  final cand = otResMatch.group(1)?.trim();
+                  if (cand != null && cand.isNotEmpty && cand.length < 60) {
                     detectedPlace = cand;
-                    break;
+                  }
+                }
+
+                if (detectedPlace == null) {
+                  final otLinkMatch = RegExp(r'opentable\.com/r/([a-zA-Z0-9_\-]+)', caseSensitive: false).firstMatch(text);
+                  if (otLinkMatch != null) {
+                    final slug = otLinkMatch.group(1);
+                    if (slug != null && slug.isNotEmpty) {
+                      detectedPlace = _cleanSlug(slug.replaceAll('-bogota', '').replaceAll('-colombia', ''));
+                    }
+                  }
+                }
+
+                // Caso Mesa 24/7 en markdown: suele venir en un heading: #### Afluente Restaurante
+                if (detectedPlace == null) {
+                  final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(text);
+                  for (final hm in headingMatches) {
+                    final cand = hm.group(1)?.trim();
+                    if (cand != null &&
+                        cand.isNotEmpty &&
+                        cand.length < 50 &&
+                        !cand.toLowerCase().contains('comparte') &&
+                        !cand.toLowerCase().contains('reserva') &&
+                        !cand.toLowerCase().contains('reservation') &&
+                        !cand.toLowerCase().contains('opentable') &&
+                        !cand.toLowerCase().contains('mesa 24/7') &&
+                        !cand.toLowerCase().contains('image')) {
+                      detectedPlace = cand;
+                      break;
+                    }
                   }
                 }
 
@@ -831,7 +886,29 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 1. Enlace de confirmación con redirección asistida
-            _buildSectionTitle('1. Enlace de confirmación', 'Pega tu reserva externa o ábrela para reservar asistido.'),
+            _buildSectionTitle(
+              '1. Enlace de confirmación',
+              'Pega tu enlace',
+              trailing: TextButton.icon(
+                onPressed: _showHowToPutReservationModal,
+                icon: const Icon(Icons.help_outline_rounded, size: 16, color: AppColors.primary),
+                label: const Text(
+                  '¿Cómo colocar tu reserva?',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  backgroundColor: AppColors.primary.withOpacity(0.08),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
             const SizedBox(height: 10),
             TextField(
               controller: _linkController,
@@ -839,7 +916,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               onChanged: _parseReservationLink,
               style: const TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
-                hint: 'Pega enlace de Apparta, Mesa 24/7, Cluvi, Justo, Degusta...',
+                hint: 'Pega enlace de Apparta, Mesa 24/7, OpenTable...',
                 icon: Icons.link,
               ),
             ),
@@ -883,26 +960,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               children: [
                 _buildExternalChip('⚡ Apparta', 'https://www.apparta.co/'),
                 _buildExternalChip('📅 Mesa 24/7', 'https://www.mesa247.co/'),
-                _buildExternalChip('📱 Cluvi', 'https://cluvi.com/'),
-                _buildExternalChip('🛵 Justo', 'https://getjusto.com/'),
-                _buildExternalChip('🍴 Degusta', 'https://www.degustaco.com/'),
                 _buildExternalChip('🍽️ OpenTable', 'https://www.opentable.com/'),
               ],
             ),
             
-            if (!_showDetails) ...[
-              const SizedBox(height: 18),
-              Center(
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _showManualEntry = true),
-                  icon: const Icon(Icons.edit_calendar_outlined, size: 18, color: AppColors.primary),
-                  label: const Text(
-                    '¿Prefieres ingresar lugar, fecha y hora manualmente?',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.primary),
-                  ),
-                ),
-              ),
-            ],
+
 
             if (_showDetails) ...[
               const SizedBox(height: 28),
@@ -1141,14 +1203,21 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             // 4. Tipo de plan (Café y Brunch separados)
             _buildSectionTitle('4. Tipo de plan', '¿Cuál es la vibra del encuentro?'),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: _planTypes.map((type) => _buildChip(
-                label: type,
-                isSelected: _selectedPlan == type,
-                onTap: () => setState(() => _selectedPlan = type),
-              )).toList(),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              child: Row(
+                children: _planTypes.map((type) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _buildChip(
+                      label: type,
+                      isSelected: _selectedPlan == type,
+                      onTap: () => setState(() => _selectedPlan = type),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
 
             const SizedBox(height: 28),
@@ -1156,14 +1225,21 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             // 5. Modalidad de pago
             _buildSectionTitle('5. Modalidad de pago', 'Establece las expectativas con claridad.'),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: _paymentTypes.map((type) => _buildChip(
-                label: type,
-                isSelected: _selectedPayment == type,
-                onTap: () => setState(() => _selectedPayment = type),
-              )).toList(),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              child: Row(
+                children: _paymentTypes.map((type) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _buildChip(
+                      label: type,
+                      isSelected: _selectedPayment == type,
+                      onTap: () => setState(() => _selectedPayment = type),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
 
             const SizedBox(height: 28),
@@ -1242,13 +1318,21 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     );
   }
 
-  Widget _buildSectionTitle(String title, String subtitle) {
-    return Column(
+  Widget _buildSectionTitle(String title, String subtitle, {Widget? trailing}) {
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-        const SizedBox(height: 3),
-        Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              const SizedBox(height: 3),
+              Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing,
       ],
     );
   }
@@ -1332,6 +1416,225 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             fontSize: 13,
           ),
         ),
+      ),
+    );
+  }
+
+  void _showHowToPutReservationModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              // Indicador de arrastre
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.help_outline, color: AppColors.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '¿Cómo colocar tu reserva?',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          ),
+                          Text(
+                            'Guía rápida para copiar el link en cada app',
+                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 24),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  children: [
+                    _buildGuideItem(
+                      iconEmoji: '⚡',
+                      appName: 'Apparta',
+                      color: const Color(0xFF6C5CE7),
+                      steps: [
+                        'Haz tu reserva normalmente en la app de Apparta o en su web.',
+                        'Ve a tu reserva confirmada y toca el botón "Compartir reserva" o copia el enlace que te envían por WhatsApp/correo.',
+                        'Pega el enlace en la casilla de esta pantalla y detectaremos el restaurante, fecha y hora en segundos.',
+                      ],
+                      exampleUrl: 'https://apparta.co/reserva/andres-dc?...',
+                    ),
+                    const SizedBox(height: 16),
+                    _buildGuideItem(
+                      iconEmoji: '📅',
+                      appName: 'Mesa 24/7',
+                      color: const Color(0xFFE17055),
+                      steps: [
+                        'Al reservar en Mesa 24/7, recibirás un correo o pantalla de confirmación.',
+                        'Toca la opción "Compartir reserva" o copia la URL de confirmación que aparece en tu navegador.',
+                        'Pégala aquí. El sistema leerá automáticamente el nombre del restaurante y horario.',
+                      ],
+                      exampleUrl: 'https://www.mesa247.co/reserva/share?id=...',
+                    ),
+                    const SizedBox(height: 16),
+                    _buildGuideItem(
+                      iconEmoji: '🍽️',
+                      appName: 'OpenTable',
+                      color: const Color(0xFFD63031),
+                      steps: [
+                        'En la confirmación de OpenTable, selecciona "Invitar amigos" o "Share reservation".',
+                        'Copia el link de invitación (o el enlace de la página web de tu reserva).',
+                        'Pégalo en el campo: ¡La app extraerá el restaurante exacto, la fecha y la hora programada!',
+                      ],
+                      exampleUrl: 'https://www.opentable.com/booking/view?rid=...',
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.lightbulb_outline, color: Colors.blue, size: 20),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '💡 También puedes pegar mensajes de WhatsApp o confirmaciones completas por texto; detectamos fechas y horas automáticamente.',
+                              style: TextStyle(fontSize: 12.5, color: Color(0xFF0984E3), height: 1.3),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGuideItem({
+    required String iconEmoji,
+    required String appName,
+    required Color color,
+    required List<String> steps,
+    required String exampleUrl,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.inputBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(iconEmoji, style: const TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Text(
+                appName,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (int i = 0; i < steps.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      steps[i],
+                      style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.link, size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Ej: $exampleUrl',
+                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontFamily: 'monospace'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

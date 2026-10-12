@@ -201,9 +201,13 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _manejarNavegacion(User user) async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get()
+          .timeout(const Duration(seconds: 6));
+
       if (!mounted) return;
-      
       setState(() => estaCargando = false);
 
       if (doc.exists && doc.data()?['isProfileComplete'] == true) {
@@ -216,9 +220,20 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => estaCargando = false);
-        _mostrarMensaje('Error verificando perfil', esError: true);
+      debugPrint('Error verificando perfil: $e');
+      if (!mounted) return;
+      setState(() => estaCargando = false);
+
+      // Si falla la consulta a Firestore (permisos, offline, timeout de red o documento pendiente),
+      // no bloqueamos al usuario: lo dirigimos a HomePage si tiene sesión activa o a ProfileSetupPage
+      try {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => HomePage(email: user.email ?? '')),
+        );
+      } catch (_) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const ProfileSetupPage()),
+        );
       }
     }
   }

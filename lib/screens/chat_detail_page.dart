@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
@@ -326,28 +325,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         actions: [
           if (matchId != null)
             IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              icon: const Icon(Icons.delete_outline, color: AppColors.icon),
               tooltip: 'Eliminar chat',
               onPressed: () => _confirmDeleteChat(context),
             ),
-          IconButton(
-            icon: const Icon(Icons.phone_outlined, color: AppColors.primary),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Llamando a $usuarioNombre...')),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFFFD1D1D)),
-            onPressed: () {
-              final url = widget.lugar['instagram_url'];
-              if (url != null) {
-                final Uri uri = Uri.parse(url);
-                launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
-            },
-          ),
         ],
       ),
       body: Column(
@@ -511,21 +492,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               ),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline, color: AppColors.icon),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Funcionalidad de fotos disponible próximamente'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                  ),
                   Expanded(
                     child: TextField(
                       controller: _mensajeController,
                       textCapitalization: TextCapitalization.sentences,
+                      onChanged: (val) {
+                        if (mounted) setState(() {});
+                      },
                       decoration: InputDecoration(
                         hintText: 'Escribe un mensaje...',
                         hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 14),
@@ -542,14 +515,35 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  CircleAvatar(
-                    backgroundColor: AppColors.primary,
-                    radius: 22,
-                    child: IconButton(
-                      icon: const Icon(Icons.send_rounded, color: AppColors.white, size: 18),
-                      onPressed: _enviarMensaje,
+                  if (_mensajeController.text.trim().isEmpty)
+                    GestureDetector(
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Mantén presionado para grabar nota de voz 🎙️'),
+                            behavior: SnackBarBehavior.floating,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.mic_rounded, color: AppColors.white, size: 20),
+                      ),
+                    )
+                  else
+                    CircleAvatar(
+                      backgroundColor: AppColors.primary,
+                      radius: 20,
+                      child: IconButton(
+                        icon: const Icon(Icons.send_rounded, color: AppColors.white, size: 18),
+                        onPressed: _enviarMensaje,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

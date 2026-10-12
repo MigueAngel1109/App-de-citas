@@ -246,10 +246,16 @@ class _CitasPageState extends State<CitasPage> {
                           context,
                           MaterialPageRoute(
                             builder: (context) => ChatDetailPage(
+                              matchId: matchRef.id,
+                              otherUserId: senderId,
+                              otherUserName: senderName,
+                              otherUserPhoto: senderPhoto,
                               lugar: {
                                 'nombre': placeName,
                                 'hora': formattedDate,
                                 'icono': '🍷',
+                                'usuario': senderName,
+                                'avatar': senderPhoto,
                               },
                             ),
                           ),
@@ -598,10 +604,16 @@ class _CitasPageState extends State<CitasPage> {
                             context,
                             MaterialPageRoute(
                               builder: (context) => ChatDetailPage(
+                                matchId: doc.id,
+                                otherUserId: otherUserId,
+                                otherUserName: otherName,
+                                otherUserPhoto: otherPhoto,
                                 lugar: {
-                                  'nombre': otherName,
-                                  'hora': placeName,
+                                  'nombre': placeName,
+                                  'hora': 'Confirmada',
                                   'icono': '💬',
+                                  'usuario': otherName,
+                                  'avatar': otherPhoto,
                                 },
                               ),
                             ),
