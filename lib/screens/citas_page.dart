@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
 import '../widgets/user_profile_modal.dart';
+import '../widgets/almona_title.dart';
 import 'chat_detail_page.dart';
 
 class CitasPage extends StatefulWidget {
@@ -287,10 +288,8 @@ class _CitasPageState extends State<CitasPage> {
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'Citas y Conexiones',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w900, fontSize: 20),
-        ),
+        centerTitle: false,
+        title: const AlmonaTitle(),
       ),
       body: SingleChildScrollView(
         child: Column(

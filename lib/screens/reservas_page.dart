@@ -6,6 +6,7 @@ import '../utils/place_photo_service.dart';
 import 'publish_reservation_page.dart';
 import 'request_detail_page.dart';
 import '../widgets/user_profile_modal.dart';
+import '../widgets/almona_title.dart';
 
 class ReservasPage extends StatefulWidget {
   final Function(GeoPoint?)? onPublished;
@@ -373,10 +374,8 @@ class _ReservasPageState extends State<ReservasPage> with SingleTickerProviderSt
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'Reservas',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w900, fontSize: 20),
-        ),
+        centerTitle: false,
+        title: const AlmonaTitle(),
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.primary,

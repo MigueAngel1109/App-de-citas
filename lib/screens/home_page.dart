@@ -145,12 +145,12 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: SafeArea(
         bottom: true,
         child: Padding(
-          padding: const EdgeInsets.only(left: 18, right: 18, bottom: 12),
+          padding: const EdgeInsets.only(left: 18, right: 18, bottom: 8),
           child: Container(
-            height: 72,
+            height: 58,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.97),
-              borderRadius: BorderRadius.circular(38),
+              borderRadius: BorderRadius.circular(32),
               border: Border.all(
                 color: Colors.white,
                 width: 1.5,
@@ -170,7 +170,7 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(38),
+              borderRadius: BorderRadius.circular(32),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -222,12 +222,12 @@ class _HomePageState extends State<HomePage> {
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
           padding: EdgeInsets.symmetric(
-            horizontal: isSelected ? 8 : 4,
-            vertical: isSelected ? 4 : 6,
+            horizontal: isSelected ? 6 : 2,
+            vertical: isSelected ? 2 : 3,
           ),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFFF1F4F9) : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -240,8 +240,8 @@ class _HomePageState extends State<HomePage> {
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.easeOutCubic,
-                    width: isSelected ? 32 : 25,
-                    height: isSelected ? 32 : 25,
+                    width: isSelected ? 28 : 22,
+                    height: isSelected ? 28 : 22,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: isSelected
@@ -255,28 +255,28 @@ class _HomePageState extends State<HomePage> {
                           ? [
                               BoxShadow(
                                 color: AppColors.primary.withOpacity(0.38),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
                               ),
                             ]
                           : null,
                     ),
                     child: Icon(
                       isSelected ? activeIcon : inactiveIcon,
-                      size: isSelected ? 18 : 22,
+                      size: isSelected ? 16 : 19,
                       color: isSelected ? Colors.white : const Color(0xFF262C36),
                     ),
                   ),
                   if (badgeCount != null && badgeCount > 0)
                     Positioned(
-                      top: isSelected ? -3 : -5,
-                      right: isSelected ? -7 : -9,
+                      top: isSelected ? -2 : -4,
+                      right: isSelected ? -6 : -8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFF3B30),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.white, width: 1.5),
+                          border: Border.all(color: Colors.white, width: 1.2),
                           boxShadow: [
                             BoxShadow(
                               color: const Color(0xFFFF3B30).withOpacity(0.4),
@@ -285,13 +285,13 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ],
                         ),
-                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
                         child: Text(
                           badgeCount > 99 ? '99+' : '$badgeCount',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 10,
+                            fontSize: 9,
                             fontWeight: FontWeight.w900,
                             height: 1.1,
                           ),
@@ -307,7 +307,7 @@ class _HomePageState extends State<HomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isSelected ? AppColors.primary : const Color(0xFF262C36),
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                   letterSpacing: -0.1,
                 ),
@@ -330,12 +330,12 @@ class _HomePageState extends State<HomePage> {
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
           padding: EdgeInsets.symmetric(
-            horizontal: isSelected ? 8 : 4,
-            vertical: isSelected ? 4 : 6,
+            horizontal: isSelected ? 6 : 2,
+            vertical: isSelected ? 2 : 3,
           ),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFFF1F4F9) : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -358,20 +358,20 @@ class _HomePageState extends State<HomePage> {
                           ? [
                               BoxShadow(
                                 color: AppColors.primary.withOpacity(0.32),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
                               ),
                             ]
                           : null,
                     ),
                     child: CircleAvatar(
-                      radius: isSelected ? 13.5 : 12,
+                      radius: isSelected ? 12 : 10.5,
                       backgroundColor: const Color(0xFFE2E6EE),
                       backgroundImage: (_userPhotoUrl != null && _userPhotoUrl!.isNotEmpty)
                           ? NetworkImage(_userPhotoUrl!)
                           : null,
                       child: (_userPhotoUrl == null || _userPhotoUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 16, color: Color(0xFF555E6D))
+                          ? const Icon(Icons.person, size: 14, color: Color(0xFF555E6D))
                           : null,
                     ),
                   ),
@@ -380,12 +380,12 @@ class _HomePageState extends State<HomePage> {
                     top: isSelected ? -2 : -1,
                     right: isSelected ? -2 : -1,
                     child: Container(
-                      width: 8.5,
-                      height: 8.5,
+                      width: 7.5,
+                      height: 7.5,
                       decoration: BoxDecoration(
                         color: const Color(0xFFFFB300),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
+                        border: Border.all(color: Colors.white, width: 1.2),
                       ),
                     ),
                   ),
@@ -398,7 +398,7 @@ class _HomePageState extends State<HomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isSelected ? AppColors.primary : const Color(0xFF262C36),
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                   letterSpacing: -0.1,
                 ),

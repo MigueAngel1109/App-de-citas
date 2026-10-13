@@ -66,5 +66,15 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Esta aplicación requiere acceso a la cámara para tomar fotos de tu perfil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Esta aplicación requiere acceso a tu galería para seleccionar fotos de tu perfil.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Esta aplicación utiliza tu ubicación para mostrarte personas y zonas de preferencia cercanas.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Esta aplicación utiliza tu ubicación para mostrarte personas y zonas de preferencia cercanas.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Esta aplicación requiere acceso al micrófono para videos o notas de voz en tu perfil.</string>
 </dict>
 </plist>

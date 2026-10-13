@@ -47,3 +47,8 @@ app.*.map.json
 
 # Firebase
 .firebase/
+
+# Local tools and build output
+scratch/
+/android/build/
+.vscode/

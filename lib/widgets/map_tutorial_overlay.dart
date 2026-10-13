@@ -80,7 +80,7 @@ class MapTutorialOverlay extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '¡Bienvenido a Conecta!',
+                                '¡Bienvenido a Almona!',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,

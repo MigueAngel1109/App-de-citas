@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import 'login_page.dart';
 import 'profile_setup_page.dart';
+import '../widgets/almona_title.dart';
 
 class MyProfilePage extends StatelessWidget {
   const MyProfilePage({super.key});
@@ -35,7 +36,8 @@ class MyProfilePage extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Mi Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+        centerTitle: false,
+        title: const AlmonaTitle(),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [

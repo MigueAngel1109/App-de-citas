@@ -6,6 +6,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../utils/app_colors.dart';
 import '../widgets/martini_icon.dart';
+import '../widgets/almona_title.dart';
 import 'home_page.dart';
 import 'profile_setup_page.dart';
 
@@ -63,15 +64,24 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => estaCargando = true);
 
     try {
-      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          )
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              throw FirebaseAuthException(
+                code: 'network-timeout',
+                message: 'Tiempo de espera agotado. Por favor verifica tu conexión a internet.',
+              );
+            },
+          );
+
       if (!mounted) return;
       await _manejarNavegacion(userCredential.user!);
     } on FirebaseAuthException catch (e) {
-      setState(() => estaCargando = false);
       String mensaje = 'Error al iniciar sesión';
       if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
         mensaje = 'El usuario no existe o la contraseña es incorrecta';
@@ -85,11 +95,14 @@ class _LoginPageState extends State<LoginPage> {
         mensaje = 'Demasiados intentos fallidos. Intenta más tarde.';
       } else if (e.code == 'operation-not-allowed') {
         mensaje = 'El proveedor de inicio de sesión por correo aún no está activo en Firebase';
+      } else if (e.code == 'network-request-failed' || e.code == 'network-timeout') {
+        mensaje = 'Problema de conexión con los servidores. Revisa tu internet e intenta nuevamente.';
       }
       _mostrarMensaje(mensaje, esError: true);
     } catch (e) {
-      setState(() => estaCargando = false);
-      _mostrarMensaje('Ocurrió un error inesperado', esError: true);
+      _mostrarMensaje('Ocurrió un error inesperado. Inténtalo de nuevo.', esError: true);
+    } finally {
+      if (mounted) setState(() => estaCargando = false);
     }
   }
 
@@ -116,15 +129,29 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => estaCargando = true);
 
     try {
-      final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      
+      await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: email,
+            password: password,
+          )
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              throw FirebaseAuthException(
+                code: 'network-timeout',
+                message: 'Tiempo de espera agotado. Por favor verifica tu conexión a internet.',
+              );
+            },
+          );
+
       if (!mounted) return;
-      await _manejarNavegacion(userCredential.user!);
+      
+      // Al ser un nuevo registro, el perfil aún no existe en Firestore.
+      // Navegamos directamente a ProfileSetupPage sin esperas de red innecesarias para máxima fluidez en iOS.
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: false)),
+      );
     } on FirebaseAuthException catch (e) {
-      setState(() => estaCargando = false);
       String mensaje = 'Error al crear la cuenta';
       if (e.code == 'weak-password') {
         mensaje = 'La contraseña es muy débil (mínimo 6 caracteres)';
@@ -134,11 +161,14 @@ class _LoginPageState extends State<LoginPage> {
         mensaje = 'El formato del correo es inválido';
       } else if (e.code == 'operation-not-allowed') {
         mensaje = 'El registro por correo no está habilitado en Firebase';
+      } else if (e.code == 'network-request-failed' || e.code == 'network-timeout') {
+        mensaje = 'Problema de conexión con el servidor. Revisa tu internet e intenta de nuevo.';
       }
       _mostrarMensaje(mensaje, esError: true);
     } catch (e) {
-      setState(() => estaCargando = false);
       _mostrarMensaje('Ocurrió un error inesperado: $e', esError: true);
+    } finally {
+      if (mounted) setState(() => estaCargando = false);
     }
   }
 
@@ -151,21 +181,24 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => estaCargando = true);
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      setState(() => estaCargando = false);
+      await FirebaseAuth.instance
+          .sendPasswordResetEmail(email: email)
+          .timeout(const Duration(seconds: 12));
       _mostrarMensaje('Hemos enviado un enlace a tu correo para restablecer tu contraseña.', esError: false, titulo: 'Correo enviado');
     } on FirebaseAuthException catch (e) {
-      setState(() => estaCargando = false);
       String mensaje = 'No se pudo enviar el correo';
       if (e.code == 'user-not-found') {
         mensaje = 'No existe una cuenta registrada con este correo';
       } else if (e.code == 'invalid-email') {
         mensaje = 'El formato del correo es inválido';
+      } else if (e.code == 'network-request-failed') {
+        mensaje = 'Error de red. Verifica tu conexión a internet.';
       }
       _mostrarMensaje(mensaje, esError: true);
     } catch (e) {
-      setState(() => estaCargando = false);
       _mostrarMensaje('Error al enviar solicitud', esError: true);
+    } finally {
+      if (mounted) setState(() => estaCargando = false);
     }
   }
 
@@ -201,24 +234,46 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _manejarNavegacion(User user) async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (!mounted) return;
-      
-      setState(() => estaCargando = false);
+      // Usamos un timeout estricto de 6s para no congelar la pantalla en iOS ante reconexiones de red
+      DocumentSnapshot<Map<String, dynamic>>? doc;
+      try {
+        doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get()
+            .timeout(const Duration(seconds: 6));
+      } catch (timeoutOrError) {
+        debugPrint('Firestore server timeout/error en iOS, intentando caché local: $timeoutOrError');
+        try {
+          doc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get(const GetOptions(source: Source.cache));
+        } catch (_) {}
+      }
 
-      if (doc.exists && doc.data()?['isProfileComplete'] == true) {
+      if (!mounted) return;
+
+      if (doc != null && doc.exists && doc.data()?['isProfileComplete'] == true) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => HomePage(email: user.email ?? '')),
         );
       } else {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const ProfileSetupPage()),
+          MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: false)),
         );
       }
     } catch (e) {
+      debugPrint('Aviso: error verificando perfil: $e');
+      if (mounted) {
+        // En caso de fallo inesperado, dirigimos al setup sin bloquear al usuario
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: false)),
+        );
+      }
+    } finally {
       if (mounted) {
         setState(() => estaCargando = false);
-        _mostrarMensaje('Error verificando perfil', esError: true);
       }
     }
   }
@@ -247,21 +302,27 @@ class _LoginPageState extends State<LoginPage> {
           idToken: googleAuth.idToken,
         );
 
-        final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+        final userCred = await FirebaseAuth.instance
+            .signInWithCredential(credential)
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () => throw FirebaseAuthException(code: 'network-timeout', message: 'Tiempo de espera agotado'),
+            );
         user = userCred.user;
       }
 
       if (!mounted) return;
       if (user != null) {
         await _manejarNavegacion(user);
-      } else {
-        setState(() => estaCargando = false);
       }
     } catch (e) {
       debugPrint('Error detallado Google Sign-In: $e');
       if (mounted) {
-        setState(() => estaCargando = false);
         _mostrarMensaje('Error con Google: $e', esError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => estaCargando = false);
       }
     }
   }
@@ -278,6 +339,17 @@ class _LoginPageState extends State<LoginPage> {
         final userCred = await FirebaseAuth.instance.signInWithPopup(appleProvider);
         user = userCred.user;
       } else {
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
+          final isAvailable = await SignInWithApple.isAvailable();
+          if (!isAvailable) {
+            if (mounted) {
+              setState(() => estaCargando = false);
+              _mostrarMensaje('El inicio de sesión con Apple no está disponible en este dispositivo.', esError: true);
+            }
+            return;
+          }
+        }
+
         final AuthorizationCredentialAppleID appleCredential =
             await SignInWithApple.getAppleIDCredential(
           scopes: [
@@ -291,19 +363,33 @@ class _LoginPageState extends State<LoginPage> {
           accessToken: appleCredential.authorizationCode,
         );
 
-        final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+        final userCred = await FirebaseAuth.instance
+            .signInWithCredential(credential)
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () => throw FirebaseAuthException(code: 'network-timeout', message: 'Tiempo de espera agotado'),
+            );
         user = userCred.user;
       }
 
       if (!mounted) return;
       if (user != null) {
         await _manejarNavegacion(user);
-      } else {
-        setState(() => estaCargando = false);
+      }
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code != AuthorizationErrorCode.canceled) {
+        if (mounted) {
+          _mostrarMensaje('Error de autorización con Apple: ${e.message}', esError: true);
+        }
       }
     } catch (e) {
-      if (mounted) setState(() => estaCargando = false);
-      _mostrarMensaje('Error al iniciar con Apple', esError: true);
+      if (mounted) {
+        _mostrarMensaje('Error al iniciar con Apple: $e', esError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => estaCargando = false);
+      }
     }
   }
 
@@ -355,15 +441,7 @@ class _LoginPageState extends State<LoginPage> {
                   // ==================================================
                   // TITULO
                   // ==================================================
-                  const Text(
-                    'Conecta',
-                    style: TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
-                      letterSpacing: -1,
-                    ),
-                  ),
+                  const AlmonaTitle(height: 52),
 
                   const SizedBox(height: 6),
 

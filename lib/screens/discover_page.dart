@@ -13,7 +13,6 @@ import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
-import '../widgets/map_tutorial_overlay.dart';
 import 'publish_reservation_page.dart';
 import '../utils/place_photo_service.dart';
 
@@ -79,8 +78,6 @@ class DiscoverPageState extends State<DiscoverPage> {
   LatLng _lastCameraPosition = _bogotaCenter;
   bool _showPeopleDiscovery = false;
   final Set<String> _preferredZones = {};
-  bool _showMapTutorial = false;
-  bool _hasDismissedTutorialLocally = false;
 
   // Cache para no descargar la foto cada vez que se mueve el mapa
   final Map<String, BitmapDescriptor> _markerCache = {};
@@ -126,9 +123,6 @@ class DiscoverPageState extends State<DiscoverPage> {
                 _preferredZones.addAll(newZones);
                 zonesChanged = true;
               }
-            }
-            if (data['hasSeenMapTutorial'] != true && !_hasDismissedTutorialLocally) {
-              _showMapTutorial = true;
             }
           }
           setState(() {});
@@ -561,6 +555,38 @@ class DiscoverPageState extends State<DiscoverPage> {
     }, onError: (e) {
       debugPrint('Error listening to reservations: $e');
     });
+  }
+
+  void _openHostProfile(ReservationMapItem res) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final isMine = res.hostUserId.isNotEmpty && res.hostUserId == currentUserId;
+    if (isMine) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: const Text('Mi Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+            ),
+            body: const MyProfilePage(),
+          ),
+        ),
+      );
+    } else {
+      UserProfileModal.show(
+        context,
+        userId: res.hostUserId,
+        name: res.hostName,
+        photo: res.hostPhoto,
+      );
+    }
   }
 
   void _openReservationDetails(ReservationMapItem res) {
@@ -1834,6 +1860,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
     final topOffset = topPadding > 0 ? topPadding : 16.0;
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       primary: false,
@@ -1876,7 +1903,7 @@ class DiscoverPageState extends State<DiscoverPage> {
           if (_showPeopleDiscovery)
             Positioned.fill(
               top: topOffset + 66,
-              bottom: 95,
+              bottom: bottomPadding + 10,
               child: TinderSwipeView(
                 onSwitchToMap: () => setState(() => _showPeopleDiscovery = false),
               ),
@@ -1972,7 +1999,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             AnimatedPositioned(
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
-              bottom: _selectedReservation != null ? 236 : 102,
+              bottom: _selectedReservation != null ? (bottomPadding + 146) : (bottomPadding + 12),
               right: 16,
               child: Material(
                 color: Colors.transparent,
@@ -2030,7 +2057,7 @@ class DiscoverPageState extends State<DiscoverPage> {
             // Ventana flotante de la reserva seleccionada (arriba de la barra del menú central)
             if (_selectedReservation != null)
               Positioned(
-                bottom: 102,
+                bottom: bottomPadding + 12,
                 left: 16,
                 right: 16,
                 child: GestureDetector(
@@ -2231,48 +2258,38 @@ class DiscoverPageState extends State<DiscoverPage> {
 
                                   // Fila inferior: Host avatar, nombre y botón "Ver cita"
                                   Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      CircleAvatar(
-                                        radius: 13,
-                                        backgroundImage: _selectedReservation!.hostPhoto.isNotEmpty
-                                            ? NetworkImage(_selectedReservation!.hostPhoto)
-                                            : null,
-                                        backgroundColor: Colors.grey[300],
-                                        child: _selectedReservation!.hostPhoto.isEmpty
-                                            ? const Icon(Icons.person, size: 14, color: Colors.white)
-                                            : null,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _selectedReservation!.hostName,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.textPrimary,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
                                       GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
                                         onTap: () {
-                                          _openReservationDetails(_selectedReservation!);
+                                          _openHostProfile(_selectedReservation!);
                                         },
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.primary,
-                                            borderRadius: BorderRadius.circular(14),
-                                          ),
-                                          child: const Text(
-                                            'Ver cita',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.bold,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              _selectedReservation!.hostName,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.textPrimary,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
-                                          ),
+                                            const SizedBox(width: 8),
+                                            CircleAvatar(
+                                              radius: 13,
+                                              backgroundImage: _selectedReservation!.hostPhoto.isNotEmpty
+                                                  ? NetworkImage(_selectedReservation!.hostPhoto)
+                                                  : null,
+                                              backgroundColor: Colors.grey[300],
+                                              child: _selectedReservation!.hostPhoto.isEmpty
+                                                  ? const Icon(Icons.person, size: 14, color: Colors.white)
+                                                  : null,
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
@@ -2288,18 +2305,6 @@ class DiscoverPageState extends State<DiscoverPage> {
                 ),
               ),
           ],
-
-          // Onboarding / Tutorial estático del mapa
-          if (_showMapTutorial)
-            MapTutorialOverlay(
-              onDismiss: () {
-                setState(() {
-                  _showMapTutorial = false;
-                  _hasDismissedTutorialLocally = true;
-                });
-                MapTutorialOverlay.markAsSeen();
-              },
-            ),
         ],
       ),
     );

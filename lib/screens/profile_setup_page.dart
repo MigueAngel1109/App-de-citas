@@ -22,7 +22,7 @@ class ProfileSetupPage extends StatefulWidget {
 class _ProfileSetupPageState extends State<ProfileSetupPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  static const int _totalSteps = 7;
+  static const int _totalSteps = 6;
   bool _isSaving = false;
 
   // -------------------------------------------------------------
@@ -36,8 +36,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   bool _showGenderOnProfile = true;
   final List<String> _genderOptions = ['Hombre', 'Mujer', 'No binario', 'Transgénero', 'Fluido', 'Otro'];
 
-  // Orientación sexual (hasta 3 selecciones)
-  final Set<String> _sexualOrientations = {};
+  // Orientación sexual (selección única)
+  String? _sexualOrientation;
   final List<String> _orientationOptions = [
     'Heterosexual', 'Gay', 'Lesbiana', 'Bisexual',
     'Asexual', 'Demisexual', 'Pansexual', 'Queer', 'Cuestionándome'
@@ -50,7 +50,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   // Fotos (mínimo 2 requeridas)
   final List<XFile?> _photos = List.filled(6, null);
   final List<String?> _existingPhotoUrls = List.filled(6, null);
-  bool _isLoadingData = true;
+  bool _isLoadingData = false;
 
   // Ubicación obligatoria
   GeoPoint? _userLocation;
@@ -73,7 +73,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   // -------------------------------------------------------------
   // 3. ESTILO DE VIDA Y HÁBITOS (OPCIONALES)
   // -------------------------------------------------------------
-  String? _pets;
+  final Set<String> _pets = {};
   final List<String> _petsOptions = ['Perro', 'Gato', 'Reptil', 'Varios', 'Sin mascotas', 'Alérgico/a'];
 
   String? _drinking;
@@ -163,18 +163,25 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   void initState() {
     super.initState();
     _requestInitialLocation();
-    _loadExistingUserData();
+    if (widget.isEditMode) {
+      _isLoadingData = true;
+      _loadExistingUserData();
+    }
   }
 
   Future<void> _loadExistingUserData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        setState(() => _isLoadingData = false);
+        if (mounted) setState(() => _isLoadingData = false);
         return;
       }
 
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get()
+          .timeout(const Duration(seconds: 6));
       if (doc.exists) {
         final data = doc.data();
         if (data != null) {
@@ -193,11 +200,16 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           if (data['showGenderOnProfile'] != null) {
             _showGenderOnProfile = data['showGenderOnProfile'] as bool;
           }
-          // Orientaciones
-          if (data['sexualOrientation'] != null && data['sexualOrientation'] is List) {
-            _sexualOrientations.clear();
-            final list = data['sexualOrientation'] as List<dynamic>;
-            _sexualOrientations.addAll(list.map((e) => e.toString()));
+          // Orientación sexual
+          if (data['sexualOrientation'] != null) {
+            if (data['sexualOrientation'] is List) {
+              final list = data['sexualOrientation'] as List<dynamic>;
+              if (list.isNotEmpty) {
+                _sexualOrientation = list.first.toString();
+              }
+            } else if (data['sexualOrientation'] is String) {
+              _sexualOrientation = data['sexualOrientation'].toString();
+            }
           }
           // A quién busca
           if (data['interestedIn'] != null) {
@@ -233,7 +245,17 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           }
           // Estilo de vida
           final lifestyle = data['lifestyle'] as Map<String, dynamic>? ?? {};
-          _pets = lifestyle['pets']?.toString();
+          _pets.clear();
+          final petsRaw = lifestyle['petsList'] ?? lifestyle['pets'];
+          if (petsRaw is List) {
+            _pets.addAll(petsRaw.map((e) => e.toString()));
+          } else if (petsRaw is String && petsRaw.isNotEmpty) {
+            if (petsRaw.contains(',')) {
+              _pets.addAll(petsRaw.split(',').map((e) => e.trim()));
+            } else {
+              _pets.add(petsRaw.trim());
+            }
+          }
           _drinking = lifestyle['drinking']?.toString();
           _smokingTobacco = lifestyle['smokingTobacco']?.toString();
           _smokingCannabis = lifestyle['smokingCannabis']?.toString();
@@ -335,35 +357,32 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         _showError('Debes tener al menos 18 años para usar la aplicación');
         return;
       }
-    }
-
-    if (_currentPage == 1) {
       if (_gender == null) {
         _showError('Por favor selecciona tu género');
         return;
       }
-      if (_sexualOrientations.isEmpty) {
-        _showError('Selecciona al menos una orientación sexual');
+      if (_sexualOrientation == null) {
+        _showError('Selecciona tu orientación sexual');
+        return;
+      }
+      if (_interestedIn == null) {
+        _showError('Selecciona a quién te gustaría ver');
         return;
       }
     }
 
-    if (_currentPage == 2) {
-      if (_interestedIn == null) {
-        _showError('Selecciona a quién te gustaría ver');
+    if (_currentPage == 1) {
+      if (_preferredZones.isEmpty) {
+        _showError('Selecciona al menos una zona de preferencia para tus reservas');
         return;
       }
       if (_relationshipGoals.isEmpty) {
         _showError('Por favor selecciona al menos una opción de lo que buscas en la app');
         return;
       }
-      if (_preferredZones.isEmpty) {
-        _showError('Selecciona al menos una zona de preferencia para tus reservas');
-        return;
-      }
     }
 
-    if (_currentPage == 3) {
+    if (_currentPage == 2) {
       final uploadedCount = List.generate(6, (i) => _photos[i] != null || (_existingPhotoUrls[i] != null && _existingPhotoUrls[i]!.isNotEmpty)).where((b) => b).length;
       if (uploadedCount < 2) {
         _showError('Es obligatorio subir al menos 2 fotos para activar tu cuenta');
@@ -393,6 +412,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       source: ImageSource.gallery,
       imageQuality: 85,
       maxWidth: 1200,
+      requestFullMetadata: false,
     );
     if (image != null) {
       setState(() {
@@ -422,12 +442,16 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       for (int i = 0; i < 6; i++) {
         if (_photos[i] != null) {
           final ref = FirebaseStorage.instance.ref().child('users/${user.uid}/photos/photo_$i.jpg');
-          if (kIsWeb) {
-            await ref.putData(await _photos[i]!.readAsBytes());
-          } else {
-            await ref.putFile(File(_photos[i]!.path));
-          }
-          final url = await ref.getDownloadURL();
+          final bytes = await _photos[i]!.readAsBytes();
+          final metadata = SettableMetadata(contentType: 'image/jpeg');
+          await ref.putData(bytes, metadata).timeout(
+            const Duration(seconds: 25),
+            onTimeout: () => throw Exception('Tiempo de espera agotado al subir foto ${i + 1}'),
+          );
+          final url = await ref.getDownloadURL().timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('Tiempo de espera agotado al obtener URL de foto ${i + 1}'),
+          );
           photoUrls.add(url);
         } else if (_existingPhotoUrls[i] != null && _existingPhotoUrls[i]!.isNotEmpty) {
           photoUrls.add(_existingPhotoUrls[i]!);
@@ -439,7 +463,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'birthDate': _birthDate,
         'gender': _gender,
         'showGenderOnProfile': _showGenderOnProfile,
-        'sexualOrientation': _sexualOrientations.toList(),
+        'sexualOrientation': _sexualOrientation != null ? [_sexualOrientation!] : [],
         'interestedIn': _interestedIn,
         'photoUrls': photoUrls,
         'photos': photoUrls,
@@ -452,7 +476,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'preferredZones': _preferredZones.toList(),
 
         'lifestyle': {
-          'pets': _pets,
+          'pets': _pets.join(', '),
+          'petsList': _pets.toList(),
           'drinking': _drinking,
           'smokingTobacco': _smokingTobacco,
           'smokingCannabis': _smokingCannabis,
@@ -482,6 +507,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
         profileData,
         SetOptions(merge: true),
+      ).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw Exception('Tiempo de espera agotado al guardar los datos de tu perfil en el servidor'),
       );
 
       // Actualizar foto y nombre en las reservas
@@ -749,86 +777,90 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     }
 
     // Modo 2: Wizard por Pasos (Onboarding inicial)
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: _currentPage > 0
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
-                onPressed: () {
-                  _pageController.previousPage(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
-              )
-            : (Navigator.of(context).canPop()
-                ? IconButton(
-                    icon: const Icon(Icons.close, color: AppColors.textPrimary, size: 22),
-                    onPressed: () => Navigator.of(context).pop(),
-                  )
-                : null),
-        title: Text(
-          'Paso ${_currentPage + 1} de $_totalSteps',
-          style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.translucent,
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: _currentPage > 0
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+                  onPressed: () {
+                    _pageController.previousPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  },
+                )
+              : (Navigator.of(context).canPop()
+                  ? IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textPrimary, size: 22),
+                      onPressed: () => Navigator.of(context).pop(),
+                    )
+                  : null),
+          title: Text(
+            'Paso ${_currentPage + 1} de $_totalSteps',
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: LinearProgressIndicator(
-                  value: (_currentPage + 1) / _totalSteps,
-                  minHeight: 6,
-                  backgroundColor: AppColors.divider,
-                  valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                ),
-              ),
-            ),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (idx) => setState(() => _currentPage = idx),
-                children: [
-                  _buildNameAndBirthStep(),
-                  _buildGenderAndOrientationStep(),
-                  _buildPreferencesAndIntentStep(),
-                  _buildPhotosAndLocationStep(),
-                  _buildLifestyleStep(),
-                  _buildPersonalInfoStep(),
-                  _buildBioAndDetailsStep(),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _nextPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 0,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: (_currentPage + 1) / _totalSteps,
+                    minHeight: 6,
+                    backgroundColor: AppColors.divider,
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
                   ),
-                  child: _isSaving
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          _currentPage == _totalSteps - 1 ? 'Finalizar Perfil' : 'Continuar',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
                 ),
               ),
-            )
-          ],
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  onPageChanged: (idx) => setState(() => _currentPage = idx),
+                  children: [
+                    _buildBasicInfoAndGenderStep(),
+                    _buildPreferencesAndIntentStep(),
+                    _buildPhotosAndLocationStep(),
+                    _buildLifestyleStep(),
+                    _buildPersonalInfoStep(),
+                    _buildBioAndDetailsStep(),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _nextPage,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                    child: _isSaving
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(
+                            _currentPage == _totalSteps - 1 ? 'Finalizar Perfil' : 'Continuar',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                  ),
+                ),
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -894,20 +926,21 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               const SizedBox(height: 10),
               TextField(
                 controller: _bioController,
-                maxLines: 4,
+                maxLines: 2,
                 maxLength: 500,
-                style: const TextStyle(color: AppColors.textPrimary),
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                 decoration: InputDecoration(
-                  hintText: 'Cuéntanos qué te apasiona, tus planes favoritos o una anécdota divertida...',
-                  hintStyle: const TextStyle(color: AppColors.textLight),
+                  hintText: 'Cuéntanos qué te apasiona, tus planes favoritos...',
+                  hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
                   filled: true,
                   fillColor: AppColors.surface,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
                   enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
                   focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // Sección 5: Personalidad MBTI
               _buildSectionHeader('🧠 Personalidad (MBTI)'),
@@ -922,8 +955,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               const SizedBox(height: 24),
 
-              // Sección 6: ¿Qué buscas en Conecta?
-              _buildSectionHeader('🎯 ¿Qué estás buscando en Conecta? (Elige hasta 2)'),
+              // Sección 6: ¿Qué buscas en Almona?
+              _buildSectionHeader('🎯 ¿Qué estás buscando en Almona? (Elige hasta 2)'),
               const SizedBox(height: 12),
               ..._relationshipGoalOptions.map((goal) {
                 final title = goal['title'] as String;
@@ -957,11 +990,11 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               const SizedBox(height: 28),
 
               // Sección 7: Intereses y Pasiones
-              _buildSectionHeader('🌟 Intereses y Pasiones (Hasta 5)'),
-              const SizedBox(height: 12),
-              _buildMultiSelectChips(
+              _buildHorizontalMultiChipCarousel(
+                title: '🌟 Intereses y Pasiones',
                 options: _availableInterests,
                 selectedSet: _interests,
+                maxSelection: 5,
                 onToggle: (item) {
                   setState(() {
                     if (_interests.contains(item)) {
@@ -974,12 +1007,17 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                   });
                 },
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // Sección 8: Estilo de Vida y Hábitos
               _buildSectionHeader('🌱 Estilo de Vida y Hábitos'),
               const SizedBox(height: 14),
-              _buildChipSelector('🐾 Mascotas', _petsOptions, _pets, (val) => setState(() => _pets = val)),
+              _buildMultiChipSelector(
+                title: '🐾 Mascotas',
+                options: _petsOptions,
+                selectedSet: _pets,
+                maxSelection: _petsOptions.length,
+              ),
               _buildChipSelector('🍷 Bebida', _drinkingOptions, _drinking, (val) => setState(() => _drinking = val)),
               _buildChipSelector('🚬 Fumar (Tabaco)', _smokingTobaccoOptions, _smokingTobacco, (val) => setState(() => _smokingTobacco = val)),
               _buildChipSelector('🌿 Fumar (Cannabis)', _smokingCannabisOptions, _smokingCannabis, (val) => setState(() => _smokingCannabis = val)),
@@ -990,6 +1028,16 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               // Sección 9: Más sobre ti
               _buildSectionHeader('✨ Más Sobre Ti'),
               const SizedBox(height: 14),
+              _buildMultiChipSelector(
+                title: '🧠 Personalidad (MBTI) (Elige hasta 2)',
+                options: _mbtiOptions,
+                selectedSet: _mbti,
+                maxSelection: 2,
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildMbtiLinkBanner(),
+              ),
               _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
               _buildMultiChipSelector(
                 title: '💖 Lenguaje del Amor (Elige hasta 3)',
@@ -1000,6 +1048,12 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
               _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
               _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
+              _buildMultiChipSelector(
+                title: '🗣️ Idiomas que hablas',
+                options: _languagesOptions,
+                selectedSet: _languages,
+                maxSelection: _languagesOptions.length,
+              ),
 
               const SizedBox(height: 20),
               // Botón Guardar al final del scroll
@@ -1088,7 +1142,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   Widget _buildPhotosGrid() {
-    final uploadedCount = List.generate(6, (i) => _photos[i] != null || (_existingPhotoUrls[i] != null && _existingPhotoUrls[i]!.isNotEmpty)).where((b) => b).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1171,12 +1224,12 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           },
         ),
         const SizedBox(height: 8),
-        Text(
-          'Fotos cargadas: $uploadedCount/2 requeridas mínimo',
+        const Text(
+          'Mínimo 2',
           style: TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: uploadedCount >= 2 ? Colors.green : Colors.redAccent,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -1186,35 +1239,251 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   // -------------------------------------------------------------
   // PASOS WIZARD (ONBOARDING)
   // -------------------------------------------------------------
-  Widget _buildNameAndBirthStep() {
+  // Carrusel horizontal reutilizable para opciones deslizables
+  Widget _buildHorizontalChipCarousel({
+    required String title,
+    required List<String> options,
+    required String? currentValue,
+    required ValueChanged<String?> onSelected,
+    bool? showScrollHint,
+  }) {
+    final bool shouldShowHint = showScrollHint ?? (options.length > 3);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            if (shouldShowHint)
+              const Row(
+                children: [
+                  Icon(Icons.swipe_left_outlined, size: 14, color: AppColors.textLight),
+                  SizedBox(width: 4),
+                  Text(
+                    'Desliza',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: options.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final opt = options[index];
+              final isSelected = currentValue == opt;
+              return GestureDetector(
+                onTap: () => onSelected(isSelected ? null : opt),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : AppColors.inputBorder,
+                      width: 1.2,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.18),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            )
+                          ]
+                        : null,
+                  ),
+                  child: Center(
+                    child: Text(
+                      opt,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        color: isSelected ? Colors.white : AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Carrusel horizontal multiselección para opciones con límite
+  Widget _buildHorizontalMultiChipCarousel({
+    required String title,
+    required List<String> options,
+    required Set<String> selectedSet,
+    required void Function(String opt) onToggle,
+    int? maxSelection,
+    Widget? subtitleWidget,
+    bool? showScrollHint,
+  }) {
+    final bool shouldShowHint = showScrollHint ?? (options.length > 3);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (maxSelection != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '(${selectedSet.length}/$maxSelection)',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (shouldShowHint)
+              const Row(
+                children: [
+                  Icon(Icons.swipe_left_outlined, size: 14, color: AppColors.textLight),
+                  SizedBox(width: 4),
+                  Text(
+                    'Desliza',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+        if (subtitleWidget != null) ...[
+          const SizedBox(height: 6),
+          subtitleWidget,
+        ],
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: options.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final opt = options[index];
+              final isSelected = selectedSet.contains(opt);
+              return GestureDetector(
+                onTap: () => onToggle(opt),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : AppColors.inputBorder,
+                      width: 1.2,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.18),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            )
+                          ]
+                        : null,
+                  ),
+                  child: Center(
+                    child: Text(
+                      opt,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        color: isSelected ? Colors.white : AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Paso 1 Unificado: Datos Básicos + Género, Orientación y A quién ver con Carruseles Horizontales
+  Widget _buildBasicInfoAndGenderStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('¿Cómo te llamas?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          const Text('Así aparecerás en tu perfil y reservas.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 24),
+          const Text(
+            '¿Cómo te llamas?',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Así aparecerás en tu perfil y reservas.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
           TextField(
             controller: _nameController,
-            style: const TextStyle(fontSize: 18, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => FocusScope.of(context).unfocus(),
+            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               hintText: 'Tu nombre de pila',
               hintStyle: const TextStyle(color: AppColors.textLight),
               filled: true,
               fillColor: AppColors.surface,
-              prefixIcon: const Icon(Icons.person, color: AppColors.primary),
+              prefixIcon: const Icon(Icons.person, color: AppColors.primary, size: 20),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.inputBorder)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.inputBorder)),
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
             ),
           ),
-          const SizedBox(height: 32),
-          const Text('¿Cuándo naciste?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 18),
+          const Text(
+            '¿Cuándo naciste?',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+          ),
           const SizedBox(height: 8),
-          const Text('Tu edad será visible. Debes tener al menos 18 años.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 16),
           InkWell(
             onTap: () async {
               final picked = await showDatePicker(
@@ -1226,7 +1495,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               if (picked != null) setState(() => _birthDate = picked);
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
@@ -1234,12 +1503,14 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
+                  const Icon(Icons.calendar_today, color: AppColors.primary, size: 18),
                   const SizedBox(width: 12),
                   Text(
-                    _birthDate != null ? '${_birthDate!.day}/${_birthDate!.month}/${_birthDate!.year}' : 'Seleccionar fecha',
+                    _birthDate != null
+                        ? '${_birthDate!.day}/${_birthDate!.month}/${_birthDate!.year}'
+                        : 'Seleccionar fecha (Debes tener +18)',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       color: _birthDate != null ? AppColors.textPrimary : AppColors.textLight,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1248,86 +1519,101 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGenderAndOrientationStep() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('¿Cuál es tu género?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          _buildChipSelector('Género', _genderOptions, _gender, (val) => setState(() => _gender = val)),
+          const SizedBox(height: 22),
+          _buildHorizontalChipCarousel(
+            title: '¿Cuál es tu género?',
+            options: _genderOptions,
+            currentValue: _gender,
+            onSelected: (val) => setState(() => _gender = val),
+          ),
+          const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Mostrar género en mi perfil', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            dense: true,
+            title: const Text(
+              'Mostrar género en mi perfil',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
             value: _showGenderOnProfile,
             activeColor: AppColors.primary,
             onChanged: (val) => setState(() => _showGenderOnProfile = val),
           ),
-          const SizedBox(height: 24),
-          const Text('Orientación sexual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 12),
-          _buildMultiSelectChips(
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: 'Orientación sexual',
             options: _orientationOptions,
-            selectedSet: _sexualOrientations,
-            onToggle: (item) {
-              setState(() {
-                if (_sexualOrientations.contains(item)) {
-                  _sexualOrientations.remove(item);
-                } else if (_sexualOrientations.length < 3) {
-                  _sexualOrientations.add(item);
-                }
-              });
-            },
+            currentValue: _sexualOrientation,
+            onSelected: (val) => setState(() => _sexualOrientation = val),
+          ),
+          const SizedBox(height: 18),
+          _buildHorizontalChipCarousel(
+            title: '¿A quién te gustaría ver?',
+            options: _interestedInOptions,
+            currentValue: _interestedIn,
+            onSelected: (val) => setState(() => _interestedIn = val),
+            showScrollHint: false,
           ),
         ],
       ),
     );
   }
 
+  // Paso 2: Zonas de Preferencia (arriba) + Qué buscas en Almona (compacto y sin textos redundantes)
   Widget _buildPreferencesAndIntentStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('¿A quién te gustaría ver?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          _buildChipSelector('Preferencia de perfiles', _interestedInOptions, _interestedIn, (val) => setState(() => _interestedIn = val)),
-          const SizedBox(height: 24),
+          const Text(
+            'Zonas de encuentro',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Elige las zonas donde prefieres tus citas.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          _buildZoneSelectorTile(),
+          const SizedBox(height: 26),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('¿Qué estás buscando en Conecta?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              const Text(
+                '¿Qué buscas en Almona?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+              ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
+                  color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text('(${_relationshipGoals.length}/2)', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 12)),
+                child: Text(
+                  '(${_relationshipGoals.length}/2)',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 12),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          const Text('Elige hasta 2 opciones que definan tu objetivo.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           ..._relationshipGoalOptions.map((goal) {
             final title = goal['title'] as String;
             final isSelected = _relationshipGoals.contains(title);
             return Container(
-              margin: const EdgeInsets.only(bottom: 10),
+              margin: const EdgeInsets.only(bottom: 8),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.primary.withOpacity(0.06) : AppColors.surface,
+                color: isSelected ? AppColors.primary.withValues(alpha: 0.06) : AppColors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: isSelected ? AppColors.primary : AppColors.inputBorder, width: isSelected ? 2 : 1),
+                border: Border.all(
+                  color: isSelected ? AppColors.primary : AppColors.inputBorder,
+                  width: isSelected ? 1.8 : 1,
+                ),
               ),
               child: ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                 onTap: () {
                   setState(() {
                     if (isSelected) {
@@ -1339,15 +1625,27 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                     }
                   });
                 },
-                leading: Icon(goal['icon'] as IconData, color: isSelected ? AppColors.primary : AppColors.icon),
-                title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                subtitle: Text(goal['desc'] as String, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                trailing: isSelected ? const Icon(Icons.check_circle, color: AppColors.primary) : const Icon(Icons.radio_button_unchecked, color: AppColors.textLight),
+                leading: Icon(
+                  goal['icon'] as IconData,
+                  color: isSelected ? AppColors.primary : AppColors.icon,
+                  size: 22,
+                ),
+                title: Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                    fontSize: 14,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                trailing: Icon(
+                  isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: isSelected ? AppColors.primary : AppColors.textLight,
+                  size: 20,
+                ),
               ),
             );
           }),
-          const SizedBox(height: 24),
-          _buildZoneSelectorTile(),
         ],
       ),
     );
@@ -1371,20 +1669,63 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
   Widget _buildLifestyleStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Estilo de Vida y Hábitos', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          const Text('Son opcionales, pero ayudan a encontrar afinidades reales.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 24),
-          _buildChipSelector('🐾 Mascotas', _petsOptions, _pets, (val) => setState(() => _pets = val)),
-          _buildChipSelector('🍷 Bebida', _drinkingOptions, _drinking, (val) => setState(() => _drinking = val)),
-          _buildChipSelector('🚬 Fumar (Tabaco)', _smokingTobaccoOptions, _smokingTobacco, (val) => setState(() => _smokingTobacco = val)),
-          _buildChipSelector('🌿 Fumar (Cannabis)', _smokingCannabisOptions, _smokingCannabis, (val) => setState(() => _smokingCannabis = val)),
-          _buildChipSelector('💪 Ejercicio', _workoutOptions, _workout, (val) => setState(() => _workout = val)),
-          _buildChipSelector('⏰ Patrón de sueño', _sleepPatternOptions, _sleepPattern, (val) => setState(() => _sleepPattern = val)),
+          const Text('Estilo de Vida y Hábitos', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          const Text('Son opcionales, pero ayudan a encontrar afinidades reales.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          const SizedBox(height: 20),
+          _buildHorizontalMultiChipCarousel(
+            title: '🐾 Mascotas',
+            options: _petsOptions,
+            selectedSet: _pets,
+            onToggle: (opt) {
+              setState(() {
+                if (_pets.contains(opt)) {
+                  _pets.remove(opt);
+                } else {
+                  _pets.add(opt);
+                }
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '🍷 Bebida',
+            options: _drinkingOptions,
+            currentValue: _drinking,
+            onSelected: (val) => setState(() => _drinking = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '🚬 Fumar (Tabaco)',
+            options: _smokingTobaccoOptions,
+            currentValue: _smokingTobacco,
+            onSelected: (val) => setState(() => _smokingTobacco = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '🌿 Fumar (Cannabis)',
+            options: _smokingCannabisOptions,
+            currentValue: _smokingCannabis,
+            onSelected: (val) => setState(() => _smokingCannabis = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '💪 Ejercicio',
+            options: _workoutOptions,
+            currentValue: _workout,
+            onSelected: (val) => setState(() => _workout = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '⏰ Patrón de sueño',
+            options: _sleepPatternOptions,
+            currentValue: _sleepPattern,
+            onSelected: (val) => setState(() => _sleepPattern = val),
+          ),
         ],
       ),
     );
@@ -1392,35 +1733,81 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
   Widget _buildPersonalInfoStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Información Personal', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          const Text('Conoce y hazte conocer con detalles que marcan la diferencia.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 24),
-          _buildMultiChipSelector(
-            title: '🧠 Tipo de Personalidad (MBTI)',
+          const Text('Información Personal', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          const Text('Conoce y hazte conocer con detalles que marcan la diferencia.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          const SizedBox(height: 20),
+          _buildHorizontalMultiChipCarousel(
+            title: '🧠 Personalidad (MBTI)',
             options: _mbtiOptions,
             selectedSet: _mbti,
             maxSelection: 2,
             subtitleWidget: _buildMbtiLinkBanner(),
+            onToggle: (opt) {
+              setState(() {
+                if (_mbti.contains(opt)) {
+                  _mbti.remove(opt);
+                } else if (_mbti.length < 2) {
+                  _mbti.add(opt);
+                } else {
+                  _showError('Puedes seleccionar hasta 2 tipos MBTI');
+                }
+              });
+            },
           ),
-          _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
-          _buildMultiChipSelector(
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '⭐ Signo del Zodiaco',
+            options: _zodiacOptions,
+            currentValue: _zodiac,
+            onSelected: (val) => setState(() => _zodiac = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalMultiChipCarousel(
             title: '💖 Lenguaje del Amor',
             options: _loveLanguageOptions,
             selectedSet: _loveLanguages,
             maxSelection: 3,
+            onToggle: (opt) {
+              setState(() {
+                if (_loveLanguages.contains(opt)) {
+                  _loveLanguages.remove(opt);
+                } else if (_loveLanguages.length < 3) {
+                  _loveLanguages.add(opt);
+                } else {
+                  _showError('Puedes seleccionar hasta 3 lenguajes del amor');
+                }
+              });
+            },
           ),
-          _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
-          _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
-          _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
-          const SizedBox(height: 12),
-          const Text('🗣️ Idiomas que hablas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          _buildMultiSelectChips(
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '👶 Planes de Familia / Hijos',
+            options: _familyPlansOptions,
+            currentValue: _familyPlans,
+            onSelected: (val) => setState(() => _familyPlans = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '💬 Estilo de Comunicación',
+            options: _communicationOptions,
+            currentValue: _communication,
+            onSelected: (val) => setState(() => _communication = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalChipCarousel(
+            title: '🎓 Nivel de Educación',
+            options: _educationOptions,
+            currentValue: _education,
+            onSelected: (val) => setState(() => _education = val),
+          ),
+          const SizedBox(height: 16),
+          _buildHorizontalMultiChipCarousel(
+            title: '🗣️ Idiomas que hablas',
             options: _languagesOptions,
             selectedSet: _languages,
             onToggle: (lang) {
@@ -1452,14 +1839,15 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           const SizedBox(height: 8),
           TextField(
             controller: _bioController,
-            maxLines: 4,
+            maxLines: 2,
             maxLength: 500,
-            style: const TextStyle(color: AppColors.textPrimary),
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
             decoration: InputDecoration(
-              hintText: 'Cuéntanos qué te apasiona, tus planes favoritos o una anécdota divertida...',
-              hintStyle: const TextStyle(color: AppColors.textLight),
+              hintText: 'Cuéntanos qué te apasiona, tus planes favoritos...',
+              hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
               filled: true,
               fillColor: AppColors.surface,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
@@ -1469,12 +1857,12 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           _buildTextFieldWithIcon('💼 Ocupación', _workController, 'Ej. Diseñador / Arquitecto / Emprendedor', Icons.work_outline),
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('📸 Usuario de Instagram', _instagramController, 'Ej. tu_usuario (sin @)', Icons.camera_alt_outlined),
-          const SizedBox(height: 24),
-          const Text('🌟 Intereses y Pasiones (Elige hasta 5)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          _buildMultiSelectChips(
+          const SizedBox(height: 20),
+          _buildHorizontalMultiChipCarousel(
+            title: '🌟 Intereses y Pasiones',
             options: _availableInterests,
             selectedSet: _interests,
+            maxSelection: 5,
             onToggle: (interest) {
               setState(() {
                 if (_interests.contains(interest)) {
@@ -1501,6 +1889,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => FocusScope.of(context).unfocus(),
           style: const TextStyle(color: AppColors.textPrimary),
           decoration: InputDecoration(
             hintText: hint,
