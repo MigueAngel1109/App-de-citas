@@ -49,6 +49,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
   // Fotos (mínimo 2 requeridas)
   final List<XFile?> _photos = List.filled(6, null);
+  final List<Uint8List?> _photoBytes = List.filled(6, null);
   final List<String?> _existingPhotoUrls = List.filled(6, null);
   bool _isLoadingData = false;
 
@@ -91,6 +92,22 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   String? _sleepPattern;
   final List<String> _sleepPatternOptions = ['Madrugador/a 🌅', 'Noctámbulo/a 🌙'];
 
+  // Ciudad de residencia
+  String? _city = 'Bogotá';
+  final List<String> _cityOptions = [
+    'Bogotá',
+    'Medellín',
+    'Cali',
+    'Barranquilla',
+    'Cartagena',
+    'Bucaramanga',
+    'Pereira',
+    'Manizales',
+    'Santa Marta',
+    'Chía / Cajicá',
+    'Otro',
+  ];
+
   // -------------------------------------------------------------
   // 4. INFORMACIÓN PERSONAL Y ANTECEDENTES (OPCIONALES)
   // -------------------------------------------------------------
@@ -101,7 +118,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Sagitario ♐', 'Capricornio ♑', 'Acuario ♒', 'Piscis ♓'
   ];
 
-  // Campo MBTI (permite hasta 2 opciones)
+  // Campo MBTI (selección exclusiva de 1 sola opción)
   final Set<String> _mbti = {};
   final List<String> _mbtiOptions = [
     'INTJ', 'INTP', 'ENTJ', 'ENTP',
@@ -113,7 +130,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   String? _education;
   final List<String> _educationOptions = ['Secundaria', 'En la universidad', 'Título universitario', 'Posgrado / Maestría', 'Doctorado'];
 
-  // Lenguaje del amor ampliado (permite hasta 3 opciones)
+  // Listado cerrado de los 5 lenguajes del amor universales (máximo 2 opciones)
   final Set<String> _loveLanguages = {};
   final List<String> _loveLanguageOptions = [
     'Palabras de afirmación 💬',
@@ -121,11 +138,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Detalles y regalos 🎁',
     'Actos de servicio 🤝',
     'Contacto físico 🫂',
-    'Risas y buen humor 😂',
-    'Escucha y apoyo emocional 👂',
-    'Aventuras y viajes juntos ✈️',
-    'Cocinar y compartir comida 🍳',
-    'Respeto al espacio personal 🧘',
   ];
 
   String? _familyPlans;
@@ -243,6 +255,11 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             _preferredZones.clear();
             _preferredZones.addAll((data['preferredZones'] as List).map((e) => e.toString()));
           }
+          // Ciudad
+          if (data['city'] != null && data['city'].toString().isNotEmpty) {
+            _city = data['city'].toString();
+          }
+
           // Estilo de vida
           final lifestyle = data['lifestyle'] as Map<String, dynamic>? ?? {};
           _pets.clear();
@@ -415,8 +432,10 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       requestFullMetadata: false,
     );
     if (image != null) {
+      final bytes = await image.readAsBytes();
       setState(() {
         _photos[index] = image;
+        _photoBytes[index] = bytes;
       });
     }
   }
@@ -442,7 +461,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       for (int i = 0; i < 6; i++) {
         if (_photos[i] != null) {
           final ref = FirebaseStorage.instance.ref().child('users/${user.uid}/photos/photo_$i.jpg');
-          final bytes = await _photos[i]!.readAsBytes();
+          final bytes = _photoBytes[i] ?? await _photos[i]!.readAsBytes();
           final metadata = SettableMetadata(contentType: 'image/jpeg');
           await ref.putData(bytes, metadata).timeout(
             const Duration(seconds: 25),
@@ -474,6 +493,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'relationshipGoal': _relationshipGoals.join(' • '),
         'relationshipGoals': _relationshipGoals.toList(),
         'preferredZones': _preferredZones.toList(),
+        'city': _city,
 
         'lifestyle': {
           'pets': _pets.join(', '),
@@ -533,7 +553,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       }
 
       if (!mounted) return;
-      if (Navigator.of(context).canPop()) {
+      if (widget.isEditMode && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -543,8 +563,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           ),
         );
       } else {
-        Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => HomePage(email: user.email ?? '')),
+          (route) => false,
         );
       }
     } catch (e) {
@@ -555,8 +576,155 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   // -------------------------------------------------------------
-  // HELPER CHIPS SIN BUG DE REFLOW NI FONDO NEGRO
+  // HELPER CHIPS & CAROUSELS SIN BUG DE REFLOW NI FONDO NEGRO
   // -------------------------------------------------------------
+  Widget _buildInstagramIcon() {
+    return Container(
+      width: 22,
+      height: 22,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        gradient: const LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [
+            Color(0xFFFCAF45),
+            Color(0xFFF77737),
+            Color(0xFFE1306C),
+            Color(0xFFC13584),
+            Color(0xFF833AB4),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.white, width: 1.5),
+          ),
+          child: Center(
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHorizontalSingleSelectCarousel({
+    required List<String> options,
+    required String? selectedValue,
+    required ValueChanged<String?> onSelected,
+    double itemWidth = 110,
+    double height = 50,
+  }) {
+    return SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: options.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final item = options[index];
+          final isSelected = selectedValue == item;
+          return GestureDetector(
+            onTap: () => onSelected(isSelected ? null : item),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: itemWidth,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.primary : AppColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected ? AppColors.primary : AppColors.inputBorder,
+                  width: isSelected ? 1.8 : 1.2,
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Center(
+                child: Text(
+                  item,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCitySelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '🏙️ Ciudad',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.inputBorder),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _cityOptions.contains(_city) ? _city : _cityOptions.first,
+              isExpanded: true,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
+              dropdownColor: AppColors.surface,
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+              onChanged: (val) {
+                if (val != null) setState(() => _city = val);
+              },
+              items: _cityOptions.map((c) {
+                return DropdownMenuItem<String>(
+                  value: c,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.location_city_rounded, color: AppColors.primary, size: 18),
+                      const SizedBox(width: 10),
+                      Text(c),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildChipSelector(String title, List<String> options, String? currentValue, ValueChanged<String?> onSelected) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -883,47 +1051,121 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           'Editar Perfil',
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        actions: [
-          TextButton(
-            onPressed: _isSaving ? null : _saveProfile,
-            child: _isSaving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-                : const Text('Guardar', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-          const SizedBox(width: 8),
+        // Se elimina el botón "Guardar" de la AppBar superior según requerimiento
+        actions: const [
+          SizedBox(width: 16),
         ],
+      ),
+      // Botón flotante / sticky en el fondo de la pantalla, siempre accesible
+      bottomNavigationBar: Container(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 15,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _isSaving ? null : _saveProfile,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            child: _isSaving
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle_outline_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Guardar cambios',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sección 1: Fotos
+              // Sección: Fotos de Perfil
               _buildSectionHeader('Tus Fotos de Perfil'),
               const SizedBox(height: 12),
               _buildPhotosGrid(),
               const SizedBox(height: 28),
 
-              // Sección 2: Zonas de Preferencia
+              // Sección: Zonas de Preferencia
               _buildSectionHeader('📍 Zonas de Preferencia'),
               const SizedBox(height: 8),
               _buildZoneSelectorTile(),
               const SizedBox(height: 28),
 
-              // Sección 3: Datos Básicos
+              // Sección: Datos Básicos
               _buildSectionHeader('Datos Básicos'),
               const SizedBox(height: 14),
-              _buildTextFieldWithIcon('Nombre completo', _nameController, 'Tu nombre', Icons.person_outline),
+              // Nombre bloqueado de solo lectura
+              _buildTextFieldWithIcon(
+                'Nombre completo',
+                _nameController,
+                'Tu nombre',
+                Icons.person_outline,
+                readOnly: true,
+                helperText: 'El nombre no se puede modificar tras el registro.',
+              ),
               const SizedBox(height: 14),
-              _buildTextFieldWithIcon('💼 Ocupación', _workController, 'Ej. Diseñador / Arquitecto / Emprendedor', Icons.work_outline),
+              // Campo de Selección de Ciudad
+              _buildCitySelector(),
               const SizedBox(height: 14),
-              _buildTextFieldWithIcon('📸 Usuario de Instagram', _instagramController, 'tu_usuario (sin @)', Icons.camera_alt_outlined),
-              const SizedBox(height: 28),
+              _buildTextFieldWithIcon(
+                '💼 Ocupación',
+                _workController,
+                'Ej. Diseñador / Arquitecto / Emprendedor',
+                Icons.work_outline,
+              ),
+              const SizedBox(height: 14),
+              // Campo de Instagram con Glifo Oficial
+              _buildTextFieldWithIcon(
+                'Usuario de Instagram',
+                _instagramController,
+                'tu_usuario (sin @)',
+                null,
+                prefixWidget: _buildInstagramIcon(),
+              ),
+              const SizedBox(height: 32),
 
-              // Sección 4: Biografía
-              _buildSectionHeader('Sobre Ti (Biografía)'),
-              const SizedBox(height: 10),
+              // =========================================================
+              // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA)
+              // 1. Biografía / Descripción personal
+              // 2. Personalidad MBTI
+              // 3. Lenguajes del Amor
+              // 4. Signo Zodiacal
+              // =========================================================
+              _buildSectionHeader('Sobre mí'),
+              const SizedBox(height: 14),
+
+              // 1. Biografía / Descripción personal
+              const Text(
+                '📝 Biografía / Descripción personal',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: 8),
               TextField(
                 controller: _bioController,
                 maxLines: 2,
@@ -942,20 +1184,91 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               const SizedBox(height: 24),
 
-              // Sección 5: Personalidad MBTI
-              _buildSectionHeader('🧠 Personalidad (MBTI)'),
-              const SizedBox(height: 6),
-              _buildMbtiLinkBanner(),
-              const SizedBox(height: 10),
-              _buildMultiChipSelector(
-                title: 'Tipo MBTI (Elige hasta 2)',
-                options: _mbtiOptions,
-                selectedSet: _mbti,
-                maxSelection: 2,
+              // 2. Personalidad MBTI (Carrusel horizontal de tamaño uniforme, selección exclusiva de 1, nota verde debajo)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '🧠 Personalidad MBTI',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                  if (_mbti.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _mbti.first,
+                        style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                ],
               ),
+              const SizedBox(height: 10),
+              _buildHorizontalSingleSelectCarousel(
+                options: _mbtiOptions,
+                selectedValue: _mbti.isNotEmpty ? _mbti.first : null,
+                onSelected: (val) {
+                  setState(() {
+                    _mbti.clear();
+                    if (val != null) _mbti.add(val);
+                  });
+                },
+                itemWidth: 95,
+                height: 48,
+              ),
+              const SizedBox(height: 8),
+              // Nota explicativa verde debajo del carrusel MBTI
+              _buildMbtiLinkBanner(),
               const SizedBox(height: 24),
 
-              // Sección 6: ¿Qué buscas en Almona?
+              // 3. Lenguajes del Amor (5 opciones universales, validación estricta de max 2 opciones)
+              _buildMultiChipSelector(
+                title: '💖 Lenguajes del Amor',
+                options: _loveLanguageOptions,
+                selectedSet: _loveLanguages,
+                maxSelection: 2,
+              ),
+              const SizedBox(height: 8),
+
+              // 4. Signo Zodiacal (Carrusel horizontal deslizable con tarjetas homogéneas)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '⭐ Signo Zodiacal',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                  if (_zodiac != null && _zodiac!.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _zodiac!,
+                        style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _buildHorizontalSingleSelectCarousel(
+                options: _zodiacOptions,
+                selectedValue: _zodiac,
+                onSelected: (val) => setState(() => _zodiac = val),
+                itemWidth: 125,
+                height: 48,
+              ),
+              const SizedBox(height: 32),
+
+              // =========================================================
+              // OTRAS SECCIONES
+              // =========================================================
+              // ¿Qué buscas en Almona?
               _buildSectionHeader('🎯 ¿Qué estás buscando en Almona? (Elige hasta 2)'),
               const SizedBox(height: 12),
               ..._relationshipGoalOptions.map((goal) {
@@ -1009,7 +1322,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
               const SizedBox(height: 24),
 
-              // Sección 8: Estilo de Vida y Hábitos
+              // Estilo de Vida y Hábitos
               _buildSectionHeader('🌱 Estilo de Vida y Hábitos'),
               const SizedBox(height: 14),
               _buildMultiChipSelector(
@@ -1025,26 +1338,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _buildChipSelector('⏰ Patrón de sueño', _sleepPatternOptions, _sleepPattern, (val) => setState(() => _sleepPattern = val)),
               const SizedBox(height: 24),
 
-              // Sección 9: Más sobre ti
+              // Más sobre ti (Familia, Comunicación, Educación)
               _buildSectionHeader('✨ Más Sobre Ti'),
               const SizedBox(height: 14),
-              _buildMultiChipSelector(
-                title: '🧠 Personalidad (MBTI) (Elige hasta 2)',
-                options: _mbtiOptions,
-                selectedSet: _mbti,
-                maxSelection: 2,
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _buildMbtiLinkBanner(),
-              ),
-              _buildChipSelector('⭐ Signo del Zodiaco', _zodiacOptions, _zodiac, (val) => setState(() => _zodiac = val)),
-              _buildMultiChipSelector(
-                title: '💖 Lenguaje del Amor (Elige hasta 3)',
-                options: _loveLanguageOptions,
-                selectedSet: _loveLanguages,
-                maxSelection: 3,
-              ),
               _buildChipSelector('👶 Planes de Familia / Hijos', _familyPlansOptions, _familyPlans, (val) => setState(() => _familyPlans = val)),
               _buildChipSelector('💬 Estilo de Comunicación', _communicationOptions, _communication, (val) => setState(() => _communication = val)),
               _buildChipSelector('🎓 Nivel de Educación', _educationOptions, _education, (val) => setState(() => _education = val)),
@@ -1054,24 +1350,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 selectedSet: _languages,
                 maxSelection: _languagesOptions.length,
               ),
-
               const SizedBox(height: 20),
-              // Botón Guardar al final del scroll
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _saveProfile,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: _isSaving
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Guardar Todos los Cambios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-              ),
-              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -1181,9 +1460,11 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(14),
                             child: hasNewPhoto
-                                ? (kIsWeb
-                                    ? Image.network(_photos[i]!.path, fit: BoxFit.cover)
-                                    : Image.file(File(_photos[i]!.path), fit: BoxFit.cover))
+                                ? (_photoBytes[i] != null
+                                    ? Image.memory(_photoBytes[i]!, fit: BoxFit.cover)
+                                    : (kIsWeb
+                                        ? Image.network(_photos[i]!.path, fit: BoxFit.cover)
+                                        : Image.file(File(_photos[i]!.path), fit: BoxFit.cover)))
                                 : Image.network(
                                     _existingPhotoUrls[i]!,
                                     fit: BoxFit.cover,
@@ -1196,6 +1477,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                             child: GestureDetector(
                               onTap: () => setState(() {
                                 _photos[i] = null;
+                                _photoBytes[i] = null;
                                 _existingPhotoUrls[i] = null;
                               }),
                               child: Container(
@@ -1519,14 +1801,26 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
             ),
           ),
-          const SizedBox(height: 22),
-          _buildHorizontalChipCarousel(
-            title: '¿Cuál es tu género?',
-            options: _genderOptions,
-            currentValue: _gender,
-            onSelected: (val) => setState(() => _gender = val),
-          ),
+          const SizedBox(height: 32),
+          const Text('¿Dónde vives?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 8),
+          const Text('Selecciona tu ciudad para conectar con personas en tu área.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          const SizedBox(height: 16),
+          _buildCitySelector(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGenderAndOrientationStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('¿Cuál es tu género?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 16),
+          _buildChipSelector('Género', _genderOptions, _gender, (val) => setState(() => _gender = val)),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             dense: true,
@@ -1737,52 +2031,40 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Información Personal', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('Conoce y hazte conocer con detalles que marcan la diferencia.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          const SizedBox(height: 20),
-          _buildHorizontalMultiChipCarousel(
-            title: '🧠 Personalidad (MBTI)',
+          const Text('Información Personal', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 8),
+          const Text('Conoce y hazte conocer con detalles que marcan la diferencia.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          const SizedBox(height: 24),
+          _buildHorizontalSingleSelectCarousel(
             options: _mbtiOptions,
-            selectedSet: _mbti,
-            maxSelection: 2,
-            subtitleWidget: _buildMbtiLinkBanner(),
-            onToggle: (opt) {
+            selectedValue: _mbti.isNotEmpty ? _mbti.first : null,
+            onSelected: (val) {
               setState(() {
-                if (_mbti.contains(opt)) {
-                  _mbti.remove(opt);
-                } else if (_mbti.length < 2) {
-                  _mbti.add(opt);
-                } else {
-                  _showError('Puedes seleccionar hasta 2 tipos MBTI');
-                }
+                _mbti.clear();
+                if (val != null) _mbti.add(val);
               });
             },
+            itemWidth: 95,
+            height: 48,
           ),
-          const SizedBox(height: 16),
-          _buildHorizontalChipCarousel(
-            title: '⭐ Signo del Zodiaco',
+          const SizedBox(height: 8),
+          _buildMbtiLinkBanner(),
+          const SizedBox(height: 20),
+          const Text('⭐ Signo del Zodiaco', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 8),
+          _buildHorizontalSingleSelectCarousel(
             options: _zodiacOptions,
-            currentValue: _zodiac,
+            selectedValue: _zodiac,
             onSelected: (val) => setState(() => _zodiac = val),
+            itemWidth: 125,
+            height: 48,
           ),
-          const SizedBox(height: 16),
-          _buildHorizontalMultiChipCarousel(
-            title: '💖 Lenguaje del Amor',
+          const SizedBox(height: 20),
+          _buildMultiChipSelector(
+            title: '💖 Lenguajes del Amor',
             options: _loveLanguageOptions,
             selectedSet: _loveLanguages,
-            maxSelection: 3,
-            onToggle: (opt) {
-              setState(() {
-                if (_loveLanguages.contains(opt)) {
-                  _loveLanguages.remove(opt);
-                } else if (_loveLanguages.length < 3) {
-                  _loveLanguages.add(opt);
-                } else {
-                  _showError('Puedes seleccionar hasta 3 lenguajes del amor');
-                }
-              });
-            },
+            maxSelection: 2,
           ),
           const SizedBox(height: 16),
           _buildHorizontalChipCarousel(
@@ -1856,7 +2138,13 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           const SizedBox(height: 16),
           _buildTextFieldWithIcon('💼 Ocupación', _workController, 'Ej. Diseñador / Arquitecto / Emprendedor', Icons.work_outline),
           const SizedBox(height: 16),
-          _buildTextFieldWithIcon('📸 Usuario de Instagram', _instagramController, 'Ej. tu_usuario (sin @)', Icons.camera_alt_outlined),
+          _buildTextFieldWithIcon(
+            'Usuario de Instagram',
+            _instagramController,
+            'Ej. tu_usuario (sin @)',
+            null,
+            prefixWidget: _buildInstagramIcon(),
+          ),
           const SizedBox(height: 20),
           _buildHorizontalMultiChipCarousel(
             title: '🌟 Intereses y Pasiones',
@@ -1881,29 +2169,71 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
-  Widget _buildTextFieldWithIcon(String label, TextEditingController controller, String hint, IconData icon) {
+  Widget _buildTextFieldWithIcon(
+    String label,
+    TextEditingController controller,
+    String hint,
+    IconData? icon, {
+    bool readOnly = false,
+    Widget? prefixWidget,
+    String? helperText,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+            if (readOnly)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline_rounded, size: 12, color: AppColors.textSecondary),
+                    SizedBox(width: 4),
+                    Text('Solo lectura', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
+          readOnly: readOnly,
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => FocusScope.of(context).unfocus(),
-          style: const TextStyle(color: AppColors.textPrimary),
+          style: TextStyle(
+            color: readOnly ? AppColors.textSecondary : AppColors.textPrimary,
+            fontWeight: readOnly ? FontWeight.w600 : FontWeight.normal,
+          ),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: AppColors.textLight),
             filled: true,
-            fillColor: AppColors.surface,
-            prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
+            fillColor: readOnly ? const Color(0xFFF3F4F6) : AppColors.surface,
+            prefixIcon: prefixWidget ?? (icon != null ? Icon(icon, color: readOnly ? AppColors.textLight : AppColors.primary, size: 20) : null),
+            helperText: helperText,
+            helperStyle: const TextStyle(fontSize: 11, color: AppColors.textLight),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: readOnly ? Colors.transparent : AppColors.inputBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: readOnly ? Colors.transparent : AppColors.primary, width: 2),
+            ),
           ),
         ),
       ],
     );
   }
 }
+

@@ -52,3 +52,6 @@ app.*.map.json
 scratch/
 /android/build/
 .vscode/
+node_modules/
+test/test_*.dart
+tmp_*.dart

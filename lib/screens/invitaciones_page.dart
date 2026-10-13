@@ -162,10 +162,16 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                         context,
                         MaterialPageRoute(
                           builder: (context) => ChatDetailPage(
+                            matchId: matchRef.id,
+                            otherUserId: senderId,
+                            otherUserName: senderName,
+                            otherUserPhoto: senderPhoto,
                             lugar: {
                               'nombre': placeName,
                               'hora': formattedTime,
                               'icono': '🍷',
+                              'usuario': senderName,
+                              'avatar': senderPhoto,
                             },
                           ),
                         ),
@@ -672,10 +678,15 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatDetailPage(
+                        otherUserId: senderId,
+                        otherUserName: senderName,
+                        otherUserPhoto: senderPhoto,
                         lugar: {
                           'nombre': placeName,
                           'hora': formattedDate,
                           'icono': '🍷',
+                          'usuario': senderName,
+                          'avatar': senderPhoto,
                         },
                       ),
                     ),
@@ -899,10 +910,15 @@ class _InvitacionesPageState extends State<InvitacionesPage> with SingleTickerPr
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatDetailPage(
+                        otherUserId: receiverId,
+                        otherUserName: receiverName,
+                        otherUserPhoto: receiverPhoto,
                         lugar: {
                           'nombre': placeName,
                           'hora': formattedDate,
                           'icono': '🍷',
+                          'usuario': receiverName,
+                          'avatar': receiverPhoto,
                         },
                       ),
                     ),
