@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
@@ -106,9 +107,58 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   }
 
   Future<void> _openExternalPlatform(String url) async {
+    // Si es OpenTable, intentar abrir directamente la app instalada en el celular
+    if (url.contains('opentable')) {
+      final appUri = Uri.parse('opentable://');
+      try {
+        if (await canLaunchUrl(appUri)) {
+          await launchUrl(appUri, mode: LaunchMode.externalApplication);
+          return;
+        }
+      } catch (_) {}
+    }
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    try {
+      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = clipboardData?.text?.trim() ?? '';
+      if (text.isNotEmpty) {
+        setState(() {
+          _linkController.text = text;
+        });
+        _parseReservationLink(text);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Text('Enlace pegado desde el portapapeles'),
+                ],
+              ),
+              backgroundColor: AppColors.primary,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('El portapapeles está vacío. Copia primero la reserva.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error pasting from clipboard: $e');
     }
   }
 
@@ -215,6 +265,41 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     }).join(' ');
   }
 
+  String _cleanOpenTableSlug(String raw) {
+    var s = Uri.decodeComponent(raw).toLowerCase().trim();
+    // Quitar sufijos comunes de ubicación de OpenTable
+    s = s.replaceAll(RegExp(r'-(bogota|colombia|medellin|cali|cartagena|co|restaurante|restaurant)$', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'-(bogota|colombia|medellin|cali|cartagena)$', caseSensitive: false), '');
+    return _cleanSlug(s);
+  }
+
+  String? _extractPlaceFromShareText(String text) {
+    // Quitar la URL para quedarnos con el texto del mensaje compartido por la app
+    final withoutUrl = text.replaceAll(RegExp(r'https?://[^\s]+'), '').trim();
+    if (withoutUrl.isEmpty) return null;
+
+    final patterns = [
+      // Español: "Tengo una reserva en Harry Sasson para el...", "Reservé en Pajares Salinas..."
+      RegExp(r'(?:tengo una reserva en|reserv[eé] (?:una mesa )?en|reserva en|acomp[aá][nñ]ame a(?:l)?|mesa en|reserva confirmada en)\s+["\x27]?([^,\n\r!.]+?)["\x27]?(?:\s+(?:para|el|a las|este|hoy|mañana|\bel\b|\bpara\b|\ben\b)\b|\s*[:,\-!]|\s*$)', caseSensitive: false),
+      // Inglés: "I made a reservation at Pajares Salinas on Friday...", "Join me at Harry Sasson..."
+      RegExp(r'(?:i (?:made|have) a reservation at|join me at|reservation at|table (?:for \d+ )?at|booked at)\s+["\x27]?([^,\n\r!.]+?)["\x27]?(?:\s+(?:for|on|at|this|\bon\b|\bfor\b)\b|\s*[:,\-!]|\s*$)', caseSensitive: false),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(withoutUrl);
+      if (match != null) {
+        final cand = match.group(1)?.trim();
+        if (cand != null && cand.isNotEmpty && cand.length >= 3 && cand.length <= 50) {
+          final lower = cand.toLowerCase();
+          if (!lower.contains('opentable') && !lower.contains('apparta') && !lower.contains('mesa 24/7')) {
+            return cand;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   Future<void> _parseReservationLink(String rawUrl) async {
     var trimmed = rawUrl.trim();
     if (trimmed.isEmpty) {
@@ -227,6 +312,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       }
       return;
     }
+
+    // 0. Pre-extracción directa desde el texto compartido por la app (WhatsApp, portapapeles, etc.)
+    final String? textDetectedPlace = _extractPlaceFromShareText(rawUrl);
+    final DateTime? textDetectedDate = _parseSpanishDate(rawUrl);
+    final TimeOfDay? textDetectedTime = _parseTimeString(rawUrl);
 
     // Extraer URL si está dentro de un texto de WhatsApp/correo
     final urlRegex = RegExp(r'https?://[^\s]+');
@@ -241,12 +331,29 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
       // Si el usuario pegó directamente un texto de confirmación sin URL
-      final parsedDate = _parseSpanishDate(rawUrl);
-      final parsedTime = _parseTimeString(rawUrl);
-      if (parsedDate != null || parsedTime != null) {
+      if (textDetectedDate != null || textDetectedTime != null || textDetectedPlace != null) {
         setState(() {
-          if (parsedDate != null && !_lockDateTime) _selectedDate = parsedDate;
-          if (parsedTime != null && !_lockDateTime) _selectedTime = parsedTime;
+          if (textDetectedPlace != null) {
+            _placeController.text = textDetectedPlace;
+            if (_autoCompleteTextController != null) {
+              _autoCompleteTextController!.text = textDetectedPlace;
+            }
+            _lookupPlacePhoto(textDetectedPlace);
+            _searchPlaces('$textDetectedPlace Bogotá').then((places) {
+              if (places.isNotEmpty && mounted) {
+                if (places.first.location != null) {
+                  setState(() {
+                    _selectedLocation = places.first.location;
+                    _isFetchingPlace = false;
+                  });
+                } else {
+                  _getPlaceDetails(places.first.placeId);
+                }
+              }
+            });
+          }
+          if (textDetectedDate != null && !_lockDateTime) _selectedDate = textDetectedDate;
+          if (textDetectedTime != null && !_lockDateTime) _selectedTime = textDetectedTime;
           _linkParseMessage = '✨ Detectado desde el texto';
           _hasDetectedData = true;
         });
@@ -256,15 +363,50 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
     setState(() {
       _isParsingLink = true;
-      _linkParseMessage = 'Analizando reserva externa...';
+      _linkParseMessage = 'Analizando reserva de OpenTable / externa...';
     });
 
     try {
-      final uri = Uri.tryParse(trimmed);
-      if (uri == null) {
+      var parsedUri = Uri.tryParse(trimmed);
+      if (parsedUri == null) {
         setState(() => _isParsingLink = false);
         return;
       }
+
+      // Desempaquetar Firebase Dynamic Links de OpenTable si traen parámetro ?link=...
+      if (parsedUri.queryParameters.containsKey('link')) {
+        final innerLink = parsedUri.queryParameters['link'];
+        if (innerLink != null && innerLink.isNotEmpty) {
+          final parsedInner = Uri.tryParse(innerLink);
+          if (parsedInner != null) {
+            parsedUri = parsedInner;
+            trimmed = innerLink;
+          }
+        }
+      }
+
+      // Resolver redirecciones si es un enlace corto de la app móvil (opentable.page.link, ot.app.link, s.opentable.com)
+      if (parsedUri.host.contains('page.link') || parsedUri.host.contains('app.link') || parsedUri.host == 's.opentable.com') {
+        if (!kIsWeb) {
+          try {
+            final client = http.Client();
+            final req = http.Request('GET', parsedUri)..followRedirects = true;
+            final streamed = await client.send(req).timeout(const Duration(seconds: 4));
+            final redirected = streamed.request?.url;
+            client.close();
+            if (redirected != null) {
+              parsedUri = redirected;
+              trimmed = redirected.toString();
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (parsedUri == null) {
+        setState(() => _isParsingLink = false);
+        return;
+      }
+      final Uri uri = parsedUri;
 
       String? detectedPlace;
       DateTime? detectedDate;
@@ -354,16 +496,30 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         }
       }
       // ==========================================
-      // 6. OPENTABLE
+      // 6. OPENTABLE (web y app móvil)
       // ==========================================
-      else if (host.contains('opentable')) {
+      else if (host.contains('opentable') || host.contains('ot.app.link')) {
         platformDetected = 'OpenTable';
         for (var i = segments.length - 1; i >= 0; i--) {
           final seg = segments[i].toLowerCase();
-          final isGeneric = seg == 'booking' || seg == 'confirmation' || seg == 'r' || seg == 'view' || seg == 'restref';
+          final isGeneric = seg == 'booking' || seg == 'confirmation' || seg == 'r' || seg == 'view' || seg == 'restref' || seg == 'restaurant' || seg == 'profile' || seg == 'experiences-view';
           if (!stopWords.contains(seg) && seg.isNotEmpty && !isGeneric) {
-            detectedPlace = _cleanSlug(segments[i]);
-            break;
+            // Evitar IDs numéricos de restaurante (ej: /restaurant/profile/12345)
+            if (!RegExp(r'^\d+$').hasMatch(seg)) {
+              detectedPlace = _cleanOpenTableSlug(segments[i]);
+              break;
+            }
+          }
+        }
+
+        // Parámetros de URL comunes en enlaces compartidos de la app de OpenTable
+        final qp = uri.queryParameters;
+        if (detectedPlace == null) {
+          for (final key in ['restaurantname', 'restaurant_name', 'name', 'place', 'rname']) {
+            if (qp.containsKey(key) && qp[key]!.trim().isNotEmpty) {
+              detectedPlace = _cleanOpenTableSlug(qp[key]!);
+              break;
+            }
           }
         }
       }
@@ -455,8 +611,48 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 } catch (_) {}
               }
 
-              // Extraer de meta description (Mesa 24/7, Degusta, OpenTable, etc.)
+              // Extraer de OpenGraph og:title, JSON-LD, HTML title y meta description
               if (detectedPlace == null || detectedDate == null || detectedTime == null) {
+                // OpenGraph og:title (muy común en OpenTable web y móvil)
+                final ogTitleMatch = RegExp(r'<meta[^>]+property=["\x27]og:title["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:title["\x27]', caseSensitive: false).firstMatch(htmlBody);
+                if (ogTitleMatch != null && detectedPlace == null) {
+                  var cand = ogTitleMatch.group(1)!.trim();
+                  cand = cand.replaceAll(RegExp(r'\s*\|\s*OpenTable.*$', caseSensitive: false), '');
+                  cand = cand.replaceAll(RegExp(r'\s*-\s*Bogot[aá].*$', caseSensitive: false), '');
+                  cand = cand.replaceAll(RegExp(r'^(?:Reserva en|Reserva confirmada en|Your reservation at|Reservation at)\s+', caseSensitive: false), '');
+                  if (cand.isNotEmpty && cand.length < 60 && !cand.toLowerCase().contains('opentable')) {
+                    detectedPlace = cand;
+                  }
+                }
+
+                // JSON-LD Schema.org (Restaurant)
+                if (detectedPlace == null) {
+                  final jsonLdMatch = RegExp(r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>', dotAll: true).firstMatch(htmlBody);
+                  if (jsonLdMatch != null) {
+                    try {
+                      final data = json.decode(jsonLdMatch.group(1)!);
+                      if (data is Map && data['name'] != null) {
+                        detectedPlace = data['name'].toString().trim();
+                      }
+                    } catch (_) {}
+                  }
+                }
+
+                // HTML <title>
+                if (detectedPlace == null) {
+                  final titleTagMatch = RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false).firstMatch(htmlBody);
+                  if (titleTagMatch != null) {
+                    var cand = titleTagMatch.group(1)!.trim();
+                    cand = cand.replaceAll(RegExp(r'\s*\|\s*OpenTable.*$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'\s*-\s*Bogot[aá].*$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'^(?:Reserva en|Reserva confirmada en|Your reservation at|Reservation at)\s+', caseSensitive: false), '');
+                    if (cand.isNotEmpty && cand.length < 50 && !cand.toLowerCase().contains('opentable')) {
+                      detectedPlace = cand;
+                    }
+                  }
+                }
+
                 final metaDescMatch = RegExp(
                   r'<meta[^>]+(?:name|itemprop)=["\x27]description["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
                   caseSensitive: false,
@@ -499,8 +695,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               }
 
               if (detectedPlace == null) {
-                // Caso OpenTable en markdown: "Your Reservation at Capitalino Restaurant" o enlace a /r/slug
-                final otResMatch = RegExp(r'Your Reservation at\s+([^|\n\r#]+)', caseSensitive: false).firstMatch(text);
+                // Caso OpenTable en markdown: "Your Reservation at Capitalino Restaurant" o "Reserva en..."
+                final otResMatch = RegExp(r'(?:Your Reservation at|Reservation at|Reserva en)\s+([^|\n\r#]+)', caseSensitive: false).firstMatch(text);
                 if (otResMatch != null) {
                   final cand = otResMatch.group(1)?.trim();
                   if (cand != null && cand.isNotEmpty && cand.length < 60) {
@@ -513,7 +709,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                   if (otLinkMatch != null) {
                     final slug = otLinkMatch.group(1);
                     if (slug != null && slug.isNotEmpty) {
-                      detectedPlace = _cleanSlug(slug.replaceAll('-bogota', '').replaceAll('-colombia', ''));
+                      detectedPlace = _cleanOpenTableSlug(slug);
                     }
                   }
                 }
@@ -554,6 +750,14 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             }
           } catch (_) {}
         }
+      }
+
+      // Rescatar cualquier dato que no se haya obtenido de la URL pero que viniera en el texto compartido por la app
+      detectedPlace ??= textDetectedPlace;
+      detectedDate ??= textDetectedDate;
+      detectedTime ??= textDetectedTime;
+      if (platformDetected == null && (rawUrl.toLowerCase().contains('opentable') || trimmed.toLowerCase().contains('opentable') || textDetectedPlace != null)) {
+        platformDetected = 'OpenTable';
       }
 
       // Aplicar información detectada a la interfaz
@@ -913,11 +1117,47 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             TextField(
               controller: _linkController,
               keyboardType: TextInputType.url,
-              onChanged: _parseReservationLink,
+              onChanged: (val) {
+                setState(() {});
+                _parseReservationLink(val);
+              },
               style: const TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Pega enlace de Apparta, Mesa 24/7, OpenTable...',
                 icon: Icons.link,
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_linkController.text.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Limpiar enlace',
+                          icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
+                          onPressed: () {
+                            _linkController.clear();
+                            _parseReservationLink('');
+                            setState(() {});
+                          },
+                        ),
+                      TextButton.icon(
+                        onPressed: _pasteFromClipboard,
+                        icon: const Icon(Icons.content_paste_rounded, size: 14, color: AppColors.primary),
+                        label: const Text(
+                          'Pegar',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          backgroundColor: AppColors.primary.withOpacity(0.08),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             if (_isParsingLink) ...[
@@ -1242,17 +1482,20 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               ),
             ),
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
 
             // 6. Punch Line / Detalles adicionales
             _buildSectionTitle('6. Punch Line & Detalles', 'Ambientación para motivar a acompañarte.'),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             TextField(
               controller: _detailsController,
-              maxLines: 4,
-              style: const TextStyle(color: AppColors.textPrimary),
+              minLines: 2,
+              maxLines: 2,
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
               decoration: _inputDecoration(
-                hint: 'Añade una frase ganadora para ambientar el plan (ej. "Tengo reservada la mesa en la terraza con vista para probar cócteles de autor. ¿Quién se anima?")',
+                hint: 'Ej: "Mesa en la terraza para probar cócteles de autor. ¿Quién se anima?"',
+              ).copyWith(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               ),
             ),
           ],
@@ -1305,11 +1548,12 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     );
   }
 
-  InputDecoration _inputDecoration({required String hint, IconData? icon}) {
+  InputDecoration _inputDecoration({required String hint, IconData? icon, Widget? suffixIcon}) {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
       prefixIcon: icon != null ? Icon(icon, color: AppColors.textLight, size: 20) : null,
+      suffixIcon: suffixIcon,
       filled: true,
       fillColor: AppColors.surface,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: AppColors.inputBorder)),
@@ -1513,14 +1757,14 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                     const SizedBox(height: 16),
                     _buildGuideItem(
                       iconEmoji: '🍽️',
-                      appName: 'OpenTable',
+                      appName: 'OpenTable (App o Web)',
                       color: const Color(0xFFD63031),
                       steps: [
-                        'En la confirmación de OpenTable, selecciona "Invitar amigos" o "Share reservation".',
-                        'Copia el link de invitación (o el enlace de la página web de tu reserva).',
-                        'Pégalo en el campo: ¡La app extraerá el restaurante exacto, la fecha y la hora programada!',
+                        'En la app de OpenTable o en su web, entra a tu reserva y toca "Compartir", "Invitar amigos" o copia el enlace.',
+                        'Si compartes por WhatsApp o copias al portapapeles, pega el texto o el link directamente aquí.',
+                        '¡Listo! Detectamos el restaurante, fecha y hora tanto si viene de la app como si viene de la web.',
                       ],
-                      exampleUrl: 'https://www.opentable.com/booking/view?rid=...',
+                      exampleUrl: 'https://opentable.page.link/... o www.opentable.com/r/...',
                     ),
                     const SizedBox(height: 20),
                     Container(

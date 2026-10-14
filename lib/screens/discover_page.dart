@@ -215,6 +215,22 @@ class DiscoverPageState extends State<DiscoverPage> {
     _smoothPanTo(_reservationsList[idx].latLng);
   }
 
+  void _goToNextReservation() {
+    if (_reservationsList.isEmpty) return;
+    final currentIdx = _selectedReservation != null
+        ? _reservationsList.indexWhere((r) => r.id == _selectedReservation!.id)
+        : _selectedReservationIndex;
+    _goToReservation((currentIdx != -1 ? currentIdx : _selectedReservationIndex) + 1);
+  }
+
+  void _goToPrevReservation() {
+    if (_reservationsList.isEmpty) return;
+    final currentIdx = _selectedReservation != null
+        ? _reservationsList.indexWhere((r) => r.id == _selectedReservation!.id)
+        : _selectedReservationIndex;
+    _goToReservation((currentIdx != -1 ? currentIdx : _selectedReservationIndex) - 1);
+  }
+
   LatLng? _parseLocation(dynamic loc, dynamic lat, dynamic lng) {
     if (loc is GeoPoint) {
       return LatLng(loc.latitude, loc.longitude);
@@ -348,7 +364,7 @@ class DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  void _showFullImageDialog(BuildContext context, String imageUrl, String title) {
+  void _showFullImageDialog(BuildContext context, String imageUrl, String title, {ReservationMapItem? res}) {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -379,10 +395,117 @@ class DiscoverPageState extends State<DiscoverPage> {
                 ),
               ),
             ),
+            if (res != null)
+              Positioned(
+                bottom: 14,
+                left: 16,
+                right: 16,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openRestaurantInGoogleMaps(res);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white30, width: 0.8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.35),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.location_on, color: Colors.white, size: 15),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Abrir "${res.placeName}" en Google Maps',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _openRestaurantInGoogleMaps(ReservationMapItem res) async {
+    Uri? mapsUrl;
+
+    // 1. Si existe URL directa de Google Maps guardada
+    final directUrl = res.data['googleMapsUrl'] ?? res.data['mapUrl'];
+    if (directUrl != null && directUrl.toString().trim().isNotEmpty) {
+      mapsUrl = Uri.tryParse(directUrl.toString().trim());
+    }
+
+    // 2. Si no, construir la URL universal de búsqueda de Google Maps
+    if (mapsUrl == null) {
+      String query;
+      final name = res.placeName.trim();
+      final loc = res.locationText.trim();
+
+      if (name.isNotEmpty) {
+        if (loc.isNotEmpty && !name.toLowerCase().contains(loc.toLowerCase()) && loc != 'Zona Bogotá') {
+          query = '$name, $loc';
+        } else if (!name.toLowerCase().contains('bogot')) {
+          query = '$name, Bogotá';
+        } else {
+          query = name;
+        }
+      } else {
+        query = '${res.latLng.latitude},${res.latLng.longitude}';
+      }
+
+      final placeId = res.data['placeId'];
+      final buffer = StringBuffer('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(query)}');
+      if (placeId != null && placeId.toString().isNotEmpty) {
+        buffer.write('&query_place_id=${Uri.encodeComponent(placeId.toString())}');
+      }
+      mapsUrl = Uri.tryParse(buffer.toString());
+    }
+
+    if (mapsUrl != null) {
+      try {
+        if (await canLaunchUrl(mapsUrl)) {
+          await launchUrl(mapsUrl, mode: LaunchMode.externalApplication);
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error abriendo Google Maps con query: $e');
+      }
+    }
+
+    // Fallback: abrir por coordenadas exactas
+    try {
+      final fallbackUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=${res.latLng.latitude},${res.latLng.longitude}');
+      if (await canLaunchUrl(fallbackUrl)) {
+        await launchUrl(fallbackUrl, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo abrir Google Maps')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error abriendo Google Maps con coordenadas: $e');
+    }
   }
 
   bool _isReservationInPreferredZones(LatLng latLng, Map<String, dynamic> data) {
@@ -764,33 +887,36 @@ class DiscoverPageState extends State<DiscoverPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Imagen Banner del Restaurante / Lugar
+          // 1. Imagen Banner del Restaurante / Lugar (Tocar abre Google Maps)
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  height: 160,
-                  child: Image.network(
-                    res.restaurantPhoto,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (ctx, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        color: const Color(0xFFEEF1F6),
-                        child: const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                        ),
-                      );
-                    },
-                    errorBuilder: (_, __, ___) => Image.network(
-                      _resolveRestaurantPhoto({}, res.planType, res.id),
+                GestureDetector(
+                  onTap: () => _openRestaurantInGoogleMaps(res),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 160,
+                    child: Image.network(
+                      res.restaurantPhoto,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: const Color(0xFF262C36),
-                        child: const Center(
-                          child: Icon(Icons.restaurant, color: Colors.white70, size: 40),
+                      loadingBuilder: (ctx, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: const Color(0xFFEEF1F6),
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) => Image.network(
+                        _resolveRestaurantPhoto({}, res.planType, res.id),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFF262C36),
+                          child: const Center(
+                            child: Icon(Icons.restaurant, color: Colors.white70, size: 40),
+                          ),
                         ),
                       ),
                     ),
@@ -799,16 +925,18 @@ class DiscoverPageState extends State<DiscoverPage> {
 
                 // Degradado inferior sutil
                 Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.1),
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.5),
-                        ],
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.1),
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.5),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -819,7 +947,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                   top: 10,
                   left: 10,
                   child: GestureDetector(
-                    onTap: () => _showFullImageDialog(context, res.restaurantPhoto, res.placeName),
+                    onTap: () => _showFullImageDialog(context, res.restaurantPhoto, res.placeName, res: res),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
                       decoration: BoxDecoration(
@@ -834,6 +962,34 @@ class DiscoverPageState extends State<DiscoverPage> {
                           SizedBox(width: 4),
                           Text(
                             'Toca para ampliar',
+                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Pill Superior Derecha: "📍 Ver en Maps"
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: GestureDetector(
+                    onTap: () => _openRestaurantInGoogleMaps(res),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.location_on, size: 12, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text(
+                            'Ver en Maps',
                             style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                           ),
                         ],
@@ -938,23 +1094,28 @@ class DiscoverPageState extends State<DiscoverPage> {
             spacing: 8,
             runSpacing: 6,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5.5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.place_rounded, size: 14, color: AppColors.primary),
-                    const SizedBox(width: 4),
-                    Text(
-                      res.locationText,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600),
-                    ),
-                  ],
+              GestureDetector(
+                onTap: () => _openRestaurantInGoogleMaps(res),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.place_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        res.locationText,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.open_in_new_rounded, size: 12, color: Color(0xFF64748B)),
+                    ],
+                  ),
                 ),
               ),
               Container(
@@ -2106,41 +2267,44 @@ class DiscoverPageState extends State<DiscoverPage> {
                       borderRadius: BorderRadius.circular(20),
                       child: Row(
                         children: [
-                          // Foto del restaurante/lugar
-                          SizedBox(
-                            width: 105,
-                            height: 122,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                Image.network(
-                                  _selectedReservation!.restaurantPhoto,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Image.network(
-                                    _resolveRestaurantPhoto({}, _selectedReservation!.planType, _selectedReservation!.id),
+                          // Foto del restaurante/lugar (Tocar abre Google Maps)
+                          GestureDetector(
+                            onTap: () => _openRestaurantInGoogleMaps(_selectedReservation!),
+                            child: SizedBox(
+                              width: 105,
+                              height: 122,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.network(
+                                    _selectedReservation!.restaurantPhoto,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: const Color(0xFF2C3437),
-                                      child: const Icon(Icons.restaurant, color: Colors.white70, size: 30),
+                                    errorBuilder: (_, __, ___) => Image.network(
+                                      _resolveRestaurantPhoto({}, _selectedReservation!.planType, _selectedReservation!.id),
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: const Color(0xFF2C3437),
+                                        child: const Icon(Icons.restaurant, color: Colors.white70, size: 30),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                Positioned(
-                                  top: 8,
-                                  left: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.65),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      _getPlanIcon(_selectedReservation!.planType),
-                                      style: const TextStyle(fontSize: 12),
+                                  Positioned(
+                                    top: 8,
+                                    left: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.65),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        _getPlanIcon(_selectedReservation!.planType),
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
 
