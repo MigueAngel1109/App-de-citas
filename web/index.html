@@ -99,6 +99,91 @@
         callback(null);
       }
     };
+
+    window.searchGooglePlaceWeb = async function(query, callback) {
+      try {
+        if (!window.google || !window.google.maps) {
+          callback(null);
+          return;
+        }
+
+        var PlaceClass = null;
+        if (google.maps.places && google.maps.places.Place) {
+          PlaceClass = google.maps.places.Place;
+        } else if (google.maps.importLibrary) {
+          try {
+            var lib = await google.maps.importLibrary("places");
+            PlaceClass = lib.Place;
+          } catch (_) {}
+        }
+
+        if (PlaceClass && typeof PlaceClass.searchByText === 'function') {
+          var request = {
+            textQuery: query,
+            fields: ['displayName', 'location', 'photos', 'formattedAddress'],
+          };
+          var result = await PlaceClass.searchByText(request);
+          var places = result ? result.places : null;
+          if (places && places.length > 0) {
+            var p = places[0];
+            var lat = null, lng = null;
+            if (p.location) {
+              lat = typeof p.location.lat === 'function' ? p.location.lat() : p.location.lat;
+              lng = typeof p.location.lng === 'function' ? p.location.lng() : p.location.lng;
+            }
+            var photoUri = null;
+            if (p.photos && p.photos.length > 0) {
+              photoUri = p.photos[0].getURI({ maxWidthPx: 800, maxHeightPx: 600 });
+            }
+            callback(JSON.stringify({
+              name: p.displayName || '',
+              address: p.formattedAddress || '',
+              lat: lat,
+              lng: lng,
+              photo: photoUri
+            }));
+            return;
+          }
+        }
+
+        if (google.maps.places && google.maps.places.PlacesService) {
+          var dummyDiv = document.createElement('div');
+          var service = new google.maps.places.PlacesService(dummyDiv);
+          service.findPlaceFromQuery({
+            query: query,
+            fields: ['name', 'geometry', 'photos', 'formatted_address']
+          }, function(results, status) {
+            if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+              var p = results[0];
+              var lat = null, lng = null;
+              if (p.geometry && p.geometry.location) {
+                lat = p.geometry.location.lat();
+                lng = p.geometry.location.lng();
+              }
+              var photoUrl = null;
+              if (p.photos && p.photos.length > 0) {
+                photoUrl = p.photos[0].getUrl({ maxWidth: 800, maxHeight: 600 });
+              }
+              callback(JSON.stringify({
+                name: p.name || '',
+                address: p.formatted_address || '',
+                lat: lat,
+                lng: lng,
+                photo: photoUrl
+              }));
+              return;
+            }
+            callback(null);
+          });
+          return;
+        }
+
+        callback(null);
+      } catch (e) {
+        console.warn('Error in searchGooglePlaceWeb:', e);
+        callback(null);
+      }
+    };
   </script>
   <style>
     html, body {

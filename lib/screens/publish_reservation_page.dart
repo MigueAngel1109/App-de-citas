@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/secrets.dart';
 import '../utils/place_photo_service.dart';
+import '../utils/place_photo_stub.dart' if (dart.library.js) '../utils/place_photo_web.dart' as js_bridge;
 import 'discover_page.dart';
 
 class PlaceAutocomplete {
@@ -49,6 +50,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   bool _isFetchingPlace = false;
   bool _isParsingLink = false;
   String? _linkParseMessage;
+  String? _linkError;
   bool _lockDateTime = false;
   String? _realPlacePhoto;
   bool _hasDetectedData = false;
@@ -127,11 +129,33 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     try {
       final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
       final text = clipboardData?.text?.trim() ?? '';
-      if (text.isNotEmpty) {
+      if (text.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('El portapapeles está vacío. Copia primero la reserva.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Si el portapapeles tiene una URL embebida (ej: mensaje compartido por WhatsApp)
+      final urlMatch = RegExp(r'https?://[^\s]+').firstMatch(text);
+      String? cleanUrl;
+      if (urlMatch != null) {
+        cleanUrl = urlMatch.group(0);
+      } else if (_isValidUrl(text)) {
+        cleanUrl = text.startsWith('http://') || text.startsWith('https://') ? text : 'https://$text';
+      }
+
+      if (cleanUrl != null) {
         setState(() {
-          _linkController.text = text;
+          _linkController.text = cleanUrl!;
+          _linkError = null;
         });
-        _parseReservationLink(text);
+        _parseReservationLink(cleanUrl);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -139,7 +163,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 children: [
                   Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
                   SizedBox(width: 8),
-                  Text('Enlace pegado desde el portapapeles'),
+                  Text('Enlace pegado correctamente'),
                 ],
               ),
               backgroundColor: AppColors.primary,
@@ -148,11 +172,23 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           );
         }
       } else {
+        setState(() {
+          _linkError = 'Solo se permiten enlaces web (ej: https://...)';
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('El portapapeles está vacío. Copia primero la reserva.'),
-              duration: Duration(seconds: 2),
+              content: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text('El texto copiado no es un link. Solo se permiten enlaces web (ej: https://...).'),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.redAccent,
+              duration: Duration(seconds: 3),
             ),
           );
         }
@@ -273,38 +309,23 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     return _cleanSlug(s);
   }
 
-  String? _extractPlaceFromShareText(String text) {
-    // Quitar la URL para quedarnos con el texto del mensaje compartido por la app
-    final withoutUrl = text.replaceAll(RegExp(r'https?://[^\s]+'), '').trim();
-    if (withoutUrl.isEmpty) return null;
-
-    final patterns = [
-      // Español: "Tengo una reserva en Harry Sasson para el...", "Reservé en Pajares Salinas..."
-      RegExp(r'(?:tengo una reserva en|reserv[eé] (?:una mesa )?en|reserva en|acomp[aá][nñ]ame a(?:l)?|mesa en|reserva confirmada en)\s+["\x27]?([^,\n\r!.]+?)["\x27]?(?:\s+(?:para|el|a las|este|hoy|mañana|\bel\b|\bpara\b|\ben\b)\b|\s*[:,\-!]|\s*$)', caseSensitive: false),
-      // Inglés: "I made a reservation at Pajares Salinas on Friday...", "Join me at Harry Sasson..."
-      RegExp(r'(?:i (?:made|have) a reservation at|join me at|reservation at|table (?:for \d+ )?at|booked at)\s+["\x27]?([^,\n\r!.]+?)["\x27]?(?:\s+(?:for|on|at|this|\bon\b|\bfor\b)\b|\s*[:,\-!]|\s*$)', caseSensitive: false),
-    ];
-
-    for (final pattern in patterns) {
-      final match = pattern.firstMatch(withoutUrl);
-      if (match != null) {
-        final cand = match.group(1)?.trim();
-        if (cand != null && cand.isNotEmpty && cand.length >= 3 && cand.length <= 50) {
-          final lower = cand.toLowerCase();
-          if (!lower.contains('opentable') && !lower.contains('apparta') && !lower.contains('mesa 24/7')) {
-            return cand;
-          }
-        }
-      }
-    }
-    return null;
+  bool _isValidUrl(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return false;
+    if (t.contains(' ')) return false;
+    final urlPattern = RegExp(
+      r'^(?:https?:\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,8}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)$',
+      caseSensitive: false,
+    );
+    return urlPattern.hasMatch(t);
   }
 
   Future<void> _parseReservationLink(String rawUrl) async {
-    var trimmed = rawUrl.trim();
-    if (trimmed.isEmpty) {
+    final trimmedInput = rawUrl.trim();
+    if (trimmedInput.isEmpty) {
       if (mounted) {
         setState(() {
+          _linkError = null;
           _linkParseMessage = null;
           _isParsingLink = false;
           _hasDetectedData = false;
@@ -313,55 +334,35 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       return;
     }
 
-    // 0. Pre-extracción directa desde el texto compartido por la app (WhatsApp, portapapeles, etc.)
-    final String? textDetectedPlace = _extractPlaceFromShareText(rawUrl);
-    final DateTime? textDetectedDate = _parseSpanishDate(rawUrl);
-    final TimeOfDay? textDetectedTime = _parseTimeString(rawUrl);
-
-    // Extraer URL si está dentro de un texto de WhatsApp/correo
-    final urlRegex = RegExp(r'https?://[^\s]+');
-    final urlMatch = urlRegex.firstMatch(trimmed);
+    // Extraer link si viene dentro de un texto
+    final urlMatch = RegExp(r'https?://[^\s]+').firstMatch(trimmedInput);
+    String cleanUrl = trimmedInput;
     if (urlMatch != null) {
-      trimmed = urlMatch.group(0)!;
-    } else if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      if (trimmed.contains('.') && !trimmed.contains(' ')) {
-        trimmed = 'https://$trimmed';
-      }
-    }
-
-    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      // Si el usuario pegó directamente un texto de confirmación sin URL
-      if (textDetectedDate != null || textDetectedTime != null || textDetectedPlace != null) {
+      cleanUrl = urlMatch.group(0)!;
+    } else if (_isValidUrl(trimmedInput)) {
+      cleanUrl = trimmedInput.startsWith('http://') || trimmedInput.startsWith('https://') ? trimmedInput : 'https://$trimmedInput';
+    } else {
+      if (mounted) {
         setState(() {
-          if (textDetectedPlace != null) {
-            _placeController.text = textDetectedPlace;
-            if (_autoCompleteTextController != null) {
-              _autoCompleteTextController!.text = textDetectedPlace;
-            }
-            _lookupPlacePhoto(textDetectedPlace);
-            _searchPlaces('$textDetectedPlace Bogotá').then((places) {
-              if (places.isNotEmpty && mounted) {
-                if (places.first.location != null) {
-                  setState(() {
-                    _selectedLocation = places.first.location;
-                    _isFetchingPlace = false;
-                  });
-                } else {
-                  _getPlaceDetails(places.first.placeId);
-                }
-              }
-            });
-          }
-          if (textDetectedDate != null && !_lockDateTime) _selectedDate = textDetectedDate;
-          if (textDetectedTime != null && !_lockDateTime) _selectedTime = textDetectedTime;
-          _linkParseMessage = '✨ Detectado desde el texto';
-          _hasDetectedData = true;
+          _linkError = 'Solo se permiten enlaces web (ej: https://...)';
+          _isParsingLink = false;
+          _linkParseMessage = null;
         });
       }
       return;
     }
 
+    if (cleanUrl != _linkController.text) {
+      _linkController.value = TextEditingValue(
+        text: cleanUrl,
+        selection: TextSelection.collapsed(offset: cleanUrl.length),
+      );
+    }
+
+    var trimmed = cleanUrl;
+
     setState(() {
+      _linkError = null;
       _isParsingLink = true;
       _linkParseMessage = 'Analizando reserva de OpenTable / externa...';
     });
@@ -502,7 +503,23 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         platformDetected = 'OpenTable';
         for (var i = segments.length - 1; i >= 0; i--) {
           final seg = segments[i].toLowerCase();
-          final isGeneric = seg == 'booking' || seg == 'confirmation' || seg == 'r' || seg == 'view' || seg == 'restref' || seg == 'restaurant' || seg == 'profile' || seg == 'experiences-view';
+          final isGeneric = seg == 'book' ||
+              seg == 'booking' ||
+              seg == 'confirmation' ||
+              seg == 'confirm' ||
+              seg == 'r' ||
+              seg == 'view' ||
+              seg == 'restref' ||
+              seg == 'restaurant' ||
+              seg == 'profile' ||
+              seg == 'experiences-view' ||
+              seg == 'experiences' ||
+              seg == 'invite' ||
+              seg == 'invitation' ||
+              seg == 'share' ||
+              seg == 'd' ||
+              seg == 'reservations' ||
+              seg == 'reservation';
           if (!stopWords.contains(seg) && seg.isNotEmpty && !isGeneric) {
             // Evitar IDs numéricos de restaurante (ej: /restaurant/profile/12345)
             if (!RegExp(r'^\d+$').hasMatch(seg)) {
@@ -523,6 +540,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           }
         }
       }
+
+      final opentableRid = uri.queryParameters['rid'] ?? uri.queryParameters['restaurantid'] ?? uri.queryParameters['restaurantId'];
 
       // Extraer parámetros query estándar (date, time, datetime, hour, etc.)
       final queryParams = uri.queryParameters;
@@ -673,8 +692,39 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 }
               }
 
-              detectedDate ??= _parseSpanishDate(htmlBody);
-              detectedTime ??= _parseTimeString(htmlBody);
+              // Extraer dateTime de JSON (ej: OpenTable primary-window-vars)
+              final dtMatch = RegExp(r'"reservation"\s*:\s*\{[^}]*"dateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody) ??
+                  RegExp(r'"dateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody) ??
+                  RegExp(r'"reservationDateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody) ??
+                  RegExp(r'"meta_reservation_datetime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody);
+              if (dtMatch != null && (detectedDate == null || detectedTime == null)) {
+                final rawDt = dtMatch.group(1)!;
+                final parsed = DateTime.tryParse(rawDt);
+                if (parsed != null) {
+                  final dt = (rawDt.endsWith('Z') || parsed.isUtc)
+                      ? parsed.toUtc().subtract(const Duration(hours: 5))
+                      : parsed;
+                  detectedDate = DateTime(dt.year, dt.month, dt.day);
+                  detectedTime = TimeOfDay(hour: dt.hour, minute: dt.minute);
+                }
+              }
+
+              if (detectedDate == null) {
+                final dMatch = RegExp(r'"(?:reservationDate|bookingDate)"\s*:\s*"(\d{4}-\d{2}-\d{2})"', caseSensitive: false).firstMatch(htmlBody);
+                if (dMatch != null) {
+                  final parsed = DateTime.tryParse(dMatch.group(1)!);
+                  if (parsed != null) {
+                    detectedDate = DateTime(parsed.year, parsed.month, parsed.day);
+                  }
+                }
+              }
+
+              if (detectedTime == null) {
+                final tMatch = RegExp(r'"(?:reservationTime|bookingTime)"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody);
+                if (tMatch != null) {
+                  detectedTime = _parseTimeString(tMatch.group(1)!);
+                }
+              }
             }
           } catch (_) {}
         }
@@ -683,29 +733,95 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         if (detectedDate == null || detectedTime == null || detectedPlace == null) {
           try {
             final jinaUri = Uri.parse('https://r.jina.ai/$trimmed');
-            final jinaRes = await http.get(jinaUri).timeout(const Duration(seconds: 8));
+            http.Response jinaRes;
+            try {
+              jinaRes = await http.get(
+                jinaUri,
+                headers: {'x-return-format': 'html'},
+              ).timeout(const Duration(seconds: 8));
+            } catch (_) {
+              jinaRes = await http.get(jinaUri).timeout(const Duration(seconds: 8));
+            }
+            if (jinaRes.statusCode != 200) {
+              jinaRes = await http.get(jinaUri).timeout(const Duration(seconds: 8));
+            }
+
             if (jinaRes.statusCode == 200) {
-              final text = jinaRes.body;
-              final lines = text.split('\n');
-              for (final line in lines) {
-                final trimmedLine = line.trim();
-                if (trimmedLine.isEmpty) continue;
-                detectedDate ??= _parseSpanishDate(trimmedLine);
-                detectedTime ??= _parseTimeString(trimmedLine);
+              final bodyContent = jinaRes.body;
+
+              // 1. Extraer dateTime de JSON y scripts (OpenTable primary-window-vars, etc.)
+              final dtMatch = RegExp(r'"reservation"\s*:\s*\{[^}]*"dateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(bodyContent) ??
+                  RegExp(r'"dateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(bodyContent) ??
+                  RegExp(r'"reservationDateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(bodyContent) ??
+                  RegExp(r'"meta_reservation_datetime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(bodyContent);
+              if (dtMatch != null && (detectedDate == null || detectedTime == null)) {
+                final rawDt = dtMatch.group(1)!;
+                final parsed = DateTime.tryParse(rawDt);
+                if (parsed != null) {
+                  // Ajustar a hora Bogotá (UTC-5) si viene en UTC con sufijo Z
+                  final dt = (rawDt.endsWith('Z') || parsed.isUtc)
+                      ? parsed.toUtc().subtract(const Duration(hours: 5))
+                      : parsed;
+                  detectedDate = DateTime(dt.year, dt.month, dt.day);
+                  detectedTime = TimeOfDay(hour: dt.hour, minute: dt.minute);
+                }
+              }
+
+              // 2. Extraer fecha / hora individuales de JSON (excluyendo fechas de catálogo/menú como startDate)
+              if (detectedDate == null) {
+                final dMatch = RegExp(r'"(?:reservationDate|bookingDate|resDate)"\s*:\s*"(\d{4}-\d{2}-\d{2})"', caseSensitive: false).firstMatch(bodyContent);
+                if (dMatch != null) {
+                  final parsed = DateTime.tryParse(dMatch.group(1)!);
+                  if (parsed != null) {
+                    detectedDate = DateTime(parsed.year, parsed.month, parsed.day);
+                  }
+                }
+              }
+
+              if (detectedTime == null) {
+                final tMatch = RegExp(r'"(?:reservationTime|bookingTime|resTime)"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(bodyContent);
+                if (tMatch != null) {
+                  detectedTime = _parseTimeString(tMatch.group(1)!);
+                }
+              }
+
+              // 3. Punch line: no autocompletar nada; la persona escoge si ingresa algo o no.
+
+              // 4. Texto plano de la página / markdown para fechas y horas en lenguaje natural (si no se obtuvieron por JSON)
+              if (detectedDate == null || detectedTime == null) {
+                final plainText = bodyContent.replaceAll(RegExp(r'<[^>]*>'), '\n');
+                final lines = plainText.split('\n');
+                for (final line in lines) {
+                  final trimmedLine = line.trim();
+                  if (trimmedLine.isEmpty) continue;
+                  // Ignorar líneas con llaves JSON o catálogos
+                  if (trimmedLine.contains('{') || trimmedLine.contains('}') || trimmedLine.contains('"schedule"')) continue;
+                  detectedDate ??= _parseSpanishDate(trimmedLine);
+                  detectedTime ??= _parseTimeString(trimmedLine);
+                  if (detectedDate != null && detectedTime != null) break;
+                }
               }
 
               if (detectedPlace == null) {
-                // Caso OpenTable en markdown: "Your Reservation at Capitalino Restaurant" o "Reserva en..."
-                final otResMatch = RegExp(r'(?:Your Reservation at|Reservation at|Reserva en)\s+([^|\n\r#]+)', caseSensitive: false).firstMatch(text);
+                // Caso OpenTable en markdown o HTML: "Your Reservation at Selvátiko by Petronio" o "Reserva en..."
+                final otResMatch = RegExp(r'(?:Your Reservation at|Reservation at|Reserva en)\s+([^|\n\r#<]+)', caseSensitive: false).firstMatch(bodyContent);
                 if (otResMatch != null) {
-                  final cand = otResMatch.group(1)?.trim();
-                  if (cand != null && cand.isNotEmpty && cand.length < 60) {
-                    detectedPlace = cand;
+                  var cand = otResMatch.group(1)?.trim();
+                  if (cand != null) {
+                    cand = cand.replaceAll(RegExp(r'\s*\|\s*OpenTable.*$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'\s*-\s*OpenTable.*$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'\s*-\s*Bogot[aá].*$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'\s+Restaurant$', caseSensitive: false), '');
+                    cand = cand.replaceAll(RegExp(r'\s+Restaurante$', caseSensitive: false), '');
+                    cand = cand.trim();
+                    if (cand.isNotEmpty && cand.length < 60) {
+                      detectedPlace = cand;
+                    }
                   }
                 }
 
                 if (detectedPlace == null) {
-                  final otLinkMatch = RegExp(r'opentable\.com/r/([a-zA-Z0-9_\-]+)', caseSensitive: false).firstMatch(text);
+                  final otLinkMatch = RegExp(r'opentable\.com/r/([a-zA-Z0-9_\-]+)', caseSensitive: false).firstMatch(bodyContent);
                   if (otLinkMatch != null) {
                     final slug = otLinkMatch.group(1);
                     if (slug != null && slug.isNotEmpty) {
@@ -716,7 +832,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
                 // Caso Mesa 24/7 en markdown: suele venir en un heading: #### Afluente Restaurante
                 if (detectedPlace == null) {
-                  final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(text);
+                  final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(bodyContent);
                   for (final hm in headingMatches) {
                     final cand = hm.group(1)?.trim();
                     if (cand != null &&
@@ -735,28 +851,51 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 }
 
                 if (detectedPlace == null) {
-                  final titleMatch = RegExp(r'Title:\s*(.+?)(?:\s+reservas|\s+menu|\s*\||\n|$)', caseSensitive: false).firstMatch(text);
+                  final titleMatch = RegExp(r'Title:\s*(.+?)(?:\s+reservas|\s+menu|\s*\||\n|$)', caseSensitive: false).firstMatch(bodyContent);
                   if (titleMatch != null) {
-                    final candidate = titleMatch.group(1)?.trim();
-                    if (candidate != null &&
-                        candidate.isNotEmpty &&
-                        candidate.length < 50 &&
-                        !candidate.toLowerCase().contains('comparte tu reserva')) {
-                      detectedPlace = candidate;
+                    var candidate = titleMatch.group(1)?.trim();
+                    if (candidate != null) {
+                      candidate = candidate.replaceAll(RegExp(r'^OpenTable\s*[-|:]\s*', caseSensitive: false), '');
+                      candidate = candidate.replaceAll(RegExp(r'^(?:Your Reservation at|Reservation at|Reserva en)\s+', caseSensitive: false), '');
+                      candidate = candidate.replaceAll(RegExp(r'\s*\|\s*OpenTable.*$', caseSensitive: false), '');
+                      candidate = candidate.replaceAll(RegExp(r'\s*-\s*OpenTable.*$', caseSensitive: false), '');
+                      candidate = candidate.replaceAll(RegExp(r'\s*-\s*Bogot[aá].*$', caseSensitive: false), '');
+                      candidate = candidate.replaceAll(RegExp(r'\s+Restaurant$', caseSensitive: false), '');
+                      candidate = candidate.trim();
+                      if (candidate.isNotEmpty &&
+                          candidate.length < 60 &&
+                          !candidate.toLowerCase().contains('comparte tu reserva') &&
+                          !candidate.toLowerCase().contains('opentable')) {
+                        detectedPlace = candidate;
+                      }
                     }
                   }
                 }
               }
             }
           } catch (_) {}
+
+          // Fallback adicional si es OpenTable con restaurant ID (rid)
+          if (detectedPlace == null && opentableRid != null && opentableRid.isNotEmpty) {
+            try {
+              final otProfileUri = Uri.parse('https://r.jina.ai/https://www.opentable.com/restaurant/profile/$opentableRid');
+              final otProfileRes = await http.get(otProfileUri).timeout(const Duration(seconds: 6));
+              if (otProfileRes.statusCode == 200) {
+                final pText = otProfileRes.body;
+                final tMatch = RegExp(r'Title:\s*(.+?)(?:\s*-\s*Bogot|\s*\||\n|$)', caseSensitive: false).firstMatch(pText);
+                if (tMatch != null) {
+                  var pName = tMatch.group(1)?.trim();
+                  if (pName != null && pName.isNotEmpty && !pName.toLowerCase().contains('opentable')) {
+                    detectedPlace = pName;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
         }
       }
 
-      // Rescatar cualquier dato que no se haya obtenido de la URL pero que viniera en el texto compartido por la app
-      detectedPlace ??= textDetectedPlace;
-      detectedDate ??= textDetectedDate;
-      detectedTime ??= textDetectedTime;
-      if (platformDetected == null && (rawUrl.toLowerCase().contains('opentable') || trimmed.toLowerCase().contains('opentable') || textDetectedPlace != null)) {
+      if (platformDetected == null && (rawUrl.toLowerCase().contains('opentable') || trimmed.toLowerCase().contains('opentable'))) {
         platformDetected = 'OpenTable';
       }
 
@@ -780,6 +919,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             } else {
               _getPlaceDetails(places.first.placeId);
             }
+          } else if (mounted) {
+            setState(() {
+              _selectedLocation ??= const GeoPoint(4.6698, -74.0573);
+              _isFetchingPlace = false;
+            });
           }
         });
         updatedAny = true;
@@ -828,6 +972,39 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   Future<List<PlaceAutocomplete>> _searchPlaces(String query) async {
     final cleanQuery = query.trim();
     if (cleanQuery.length < 2) return [];
+
+    // 0. En Web, consultar directamente el servicio oficial de Google Maps Places vía JS (sin bloqueo CORS)
+    if (kIsWeb) {
+      try {
+        final details = await js_bridge.fetchPlaceDetailsFromJs(cleanQuery);
+        if (details != null) {
+          final name = (details['name'] as String? ?? '').isNotEmpty
+              ? details['name'] as String
+              : cleanQuery;
+          final address = details['address'] as String? ?? '';
+          final label = address.isNotEmpty ? '$name, $address' : name;
+          final lat = (details['lat'] as num?)?.toDouble();
+          final lng = (details['lng'] as num?)?.toDouble();
+          final photo = details['photo'] as String?;
+          if (photo != null && photo.isNotEmpty && mounted) {
+            setState(() => _realPlacePhoto = photo);
+          }
+          GeoPoint? loc;
+          if (lat != null && lng != null) {
+            loc = GeoPoint(lat, lng);
+          }
+          return [
+            PlaceAutocomplete(
+              description: label,
+              placeId: 'google_web_${DateTime.now().millisecondsSinceEpoch}',
+              location: loc,
+            ),
+          ];
+        }
+      } catch (e) {
+        debugPrint('Web JS place search error: $e');
+      }
+    }
 
     // 1. Con Google Places
     if (!kIsWeb && googleMapsApiKey != 'TU_API_KEY_AQUI') {
@@ -983,14 +1160,26 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       return;
     }
 
+    final rawLink = _linkController.text.trim();
+    if (rawLink.isNotEmpty && !_isValidUrl(rawLink)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor ingresa un enlace web válido o bórralo para continuar.')),
+      );
+      return;
+    }
+
     if (_placeController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor ingresa el nombre del lugar')));
       return;
     }
 
     if (_selectedLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes seleccionar un lugar de la lista o fijar tu ubicación')));
-      return;
+      if (_placeController.text.trim().isNotEmpty) {
+        _selectedLocation = const GeoPoint(4.6698, -74.0573);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes seleccionar un lugar de la lista o fijar tu ubicación')));
+        return;
+      }
     }
 
     if (_selectedDate == null || _selectedTime == null) {
@@ -1118,13 +1307,44 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               controller: _linkController,
               keyboardType: TextInputType.url,
               onChanged: (val) {
-                setState(() {});
-                _parseReservationLink(val);
+                final trimmed = val.trim();
+                if (trimmed.isEmpty) {
+                  setState(() {
+                    _linkError = null;
+                    _linkParseMessage = null;
+                    _isParsingLink = false;
+                  });
+                  return;
+                }
+
+                // Si pegaron texto con URL adentro (ej: mensaje de WhatsApp)
+                final urlMatch = RegExp(r'https?://[^\s]+').firstMatch(trimmed);
+                if (urlMatch != null && urlMatch.group(0) != trimmed) {
+                  final extracted = urlMatch.group(0)!;
+                  _linkController.value = TextEditingValue(
+                    text: extracted,
+                    selection: TextSelection.collapsed(offset: extracted.length),
+                  );
+                  setState(() => _linkError = null);
+                  _parseReservationLink(extracted);
+                  return;
+                }
+
+                if (!_isValidUrl(trimmed)) {
+                  setState(() {
+                    _linkError = 'Solo se permiten enlaces web (ej: https://...)';
+                    _linkParseMessage = null;
+                  });
+                } else {
+                  setState(() => _linkError = null);
+                  _parseReservationLink(trimmed);
+                }
               },
               style: const TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
-                hint: 'Pega enlace de Apparta, Mesa 24/7, OpenTable...',
+                hint: 'https://www.opentable.com/book/...',
                 icon: Icons.link,
+                errorText: _linkError,
                 suffixIcon: Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: Row(
@@ -1136,8 +1356,12 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                           icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
                           onPressed: () {
                             _linkController.clear();
+                            setState(() {
+                              _linkError = null;
+                              _linkParseMessage = null;
+                              _isParsingLink = false;
+                            });
                             _parseReservationLink('');
-                            setState(() {});
                           },
                         ),
                       TextButton.icon(
@@ -1343,25 +1567,24 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
 
               // 3. Fecha y Hora (Visible una vez detectados o solicitados)
               const SizedBox(height: 28),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildSectionTitle('3. Fecha y Hora', '¿Cuándo es tu reserva?'),
-                  Row(
-                    children: [
-                      const Text('Conservar fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                      const SizedBox(width: 4),
-                      Transform.scale(
-                        scale: 0.75,
-                        child: Switch(
-                          value: _lockDateTime,
-                          activeColor: AppColors.primary,
-                          onChanged: (val) => setState(() => _lockDateTime = val),
-                        ),
+              _buildSectionTitle(
+                '3. Fecha y Hora',
+                '¿Cuándo es tu reserva?',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Conservar fecha', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    const SizedBox(width: 4),
+                    Transform.scale(
+                      scale: 0.75,
+                      child: Switch(
+                        value: _lockDateTime,
+                        activeThumbColor: AppColors.primary,
+                        onChanged: (val) => setState(() => _lockDateTime = val),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
               Row(
@@ -1548,16 +1771,25 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     );
   }
 
-  InputDecoration _inputDecoration({required String hint, IconData? icon, Widget? suffixIcon}) {
+  InputDecoration _inputDecoration({
+    required String hint,
+    IconData? icon,
+    Widget? suffixIcon,
+    String? errorText,
+  }) {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 13),
       prefixIcon: icon != null ? Icon(icon, color: AppColors.textLight, size: 20) : null,
       suffixIcon: suffixIcon,
+      errorText: errorText,
+      errorStyle: const TextStyle(fontSize: 12, color: Colors.redAccent),
       filled: true,
       fillColor: AppColors.surface,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: AppColors.inputBorder)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: AppColors.inputBorder)),
+      errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: Colors.redAccent)),
+      focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: Colors.redAccent, width: 2)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
     );
   }

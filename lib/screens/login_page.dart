@@ -47,7 +47,18 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // En entorno de pruebas y en la web, siempre regresamos al Login al iniciar o recargar
+      // para facilitar pruebas de registro y navegación desde cero sin quedarse en el último paso.
+      // En producción móvil (!kIsWeb && !kDebugMode), se mantiene la sesión guardada automáticamente.
+      const bool forzarLoginEnPruebas = kIsWeb || kDebugMode;
+      if (forzarLoginEnPruebas) {
+        if (FirebaseAuth.instance.currentUser != null) {
+          await FirebaseAuth.instance.signOut();
+        }
+        return;
+      }
+
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         _manejarNavegacion(user);

@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import 'home_page.dart';
+import 'login_page.dart';
 import '../widgets/zone_selection_map.dart';
 
 class ProfileSetupPage extends StatefulWidget {
@@ -92,21 +93,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   String? _sleepPattern;
   final List<String> _sleepPatternOptions = ['Madrugador/a 🌅', 'Noctámbulo/a 🌙'];
 
-  // Ciudad de residencia
+  // Ciudad de residencia (por defecto Bogotá)
   String? _city = 'Bogotá';
-  final List<String> _cityOptions = [
-    'Bogotá',
-    'Medellín',
-    'Cali',
-    'Barranquilla',
-    'Cartagena',
-    'Bucaramanga',
-    'Pereira',
-    'Manizales',
-    'Santa Marta',
-    'Chía / Cajicá',
-    'Otro',
-  ];
 
   // -------------------------------------------------------------
   // 4. INFORMACIÓN PERSONAL Y ANTECEDENTES (OPCIONALES)
@@ -418,6 +406,15 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
+  void _returnToLogin() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+      (route) => false,
+    );
+  }
+
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
@@ -680,50 +677,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
-  Widget _buildCitySelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '🏙️ Ciudad',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.inputBorder),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _cityOptions.contains(_city) ? _city : _cityOptions.first,
-              isExpanded: true,
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
-              dropdownColor: AppColors.surface,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-              onChanged: (val) {
-                if (val != null) setState(() => _city = val);
-              },
-              items: _cityOptions.map((c) {
-                return DropdownMenuItem<String>(
-                  value: c,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.location_city_rounded, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 10),
-                      Text(c),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildChipSelector(String title, List<String> options, String? currentValue, ValueChanged<String?> onSelected) {
     return Padding(
@@ -881,42 +835,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
-  Widget _buildMultiSelectChips({
-    required List<String> options,
-    required Set<String> selectedSet,
-    required void Function(String item) onToggle,
-  }) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: options.map((item) {
-        final isSelected = selectedSet.contains(item);
-        return GestureDetector(
-          onTap: () => onToggle(item),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: isSelected ? AppColors.primary : AppColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isSelected ? AppColors.primary : AppColors.inputBorder,
-                width: 1.2,
-              ),
-            ),
-            child: Text(
-              item,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppColors.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
 
   // -------------------------------------------------------------
   // CONSTRUCCIÓN DE LA VISTA (Wizard vs Continuous Scroll)
@@ -948,34 +866,44 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       behavior: HitTestBehavior.translucent,
-      child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: _currentPage > 0
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
-                  onPressed: () {
-                    _pageController.previousPage(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  },
-                )
-              : (Navigator.of(context).canPop()
-                  ? IconButton(
-                      icon: const Icon(Icons.close, color: AppColors.textPrimary, size: 22),
-                      onPressed: () => Navigator.of(context).pop(),
-                    )
-                  : null),
-          title: Text(
-            'Paso ${_currentPage + 1} de $_totalSteps',
-            style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (_currentPage > 0) {
+            _pageController.previousPage(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+            );
+          } else {
+            _returnToLogin();
+          }
+        },
+        child: Scaffold(
+          resizeToAvoidBottomInset: false,
+          backgroundColor: AppColors.background,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+              onPressed: () {
+                if (_currentPage > 0) {
+                  _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                } else {
+                  _returnToLogin();
+                }
+              },
+            ),
+            title: Text(
+              'Paso ${_currentPage + 1} de $_totalSteps',
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            centerTitle: true,
           ),
-          centerTitle: true,
-        ),
         body: SafeArea(
           child: Column(
             children: [
@@ -1030,6 +958,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -1130,9 +1059,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 helperText: 'El nombre no se puede modificar tras el registro.',
               ),
               const SizedBox(height: 14),
-              // Campo de Selección de Ciudad
-              _buildCitySelector(),
-              const SizedBox(height: 14),
               _buildTextFieldWithIcon(
                 '💼 Ocupación',
                 _workController,
@@ -1147,6 +1073,40 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 'tu_usuario (sin @)',
                 null,
                 prefixWidget: _buildInstagramIcon(),
+              ),
+              const SizedBox(height: 16),
+              _buildHorizontalChipCarousel(
+                title: '¿Cuál es tu género?',
+                options: _genderOptions,
+                currentValue: _gender,
+                onSelected: (val) => setState(() => _gender = val),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text(
+                  'Mostrar género en mi perfil',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                value: _showGenderOnProfile,
+                activeThumbColor: AppColors.primary,
+                onChanged: (val) => setState(() => _showGenderOnProfile = val),
+              ),
+              const SizedBox(height: 16),
+              _buildHorizontalChipCarousel(
+                title: 'Orientación sexual',
+                options: _orientationOptions,
+                currentValue: _sexualOrientation,
+                onSelected: (val) => setState(() => _sexualOrientation = val),
+              ),
+              const SizedBox(height: 18),
+              _buildHorizontalChipCarousel(
+                title: '¿A quién te gustaría ver?',
+                options: _interestedInOptions,
+                currentValue: _interestedIn,
+                onSelected: (val) => setState(() => _interestedIn = val),
+                showScrollHint: false,
               ),
               const SizedBox(height: 32),
 
@@ -1224,14 +1184,25 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _buildMbtiLinkBanner(),
               const SizedBox(height: 24),
 
-              // 3. Lenguajes del Amor (5 opciones universales, validación estricta de max 2 opciones)
-              _buildMultiChipSelector(
+              // 3. Lenguajes del Amor (Carrusel horizontal de tamaño uniforme, selección máx 2)
+              _buildHorizontalMultiChipCarousel(
                 title: '💖 Lenguajes del Amor',
                 options: _loveLanguageOptions,
                 selectedSet: _loveLanguages,
                 maxSelection: 2,
+                onToggle: (opt) {
+                  setState(() {
+                    if (_loveLanguages.contains(opt)) {
+                      _loveLanguages.remove(opt);
+                    } else if (_loveLanguages.length < 2) {
+                      _loveLanguages.add(opt);
+                    } else {
+                      _showError('Puedes seleccionar hasta 2 lenguajes del amor');
+                    }
+                  });
+                },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 20),
 
               // 4. Signo Zodiacal (Carrusel horizontal deslizable con tarjetas homogéneas)
               Row(
@@ -1726,10 +1697,10 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
-  // Paso 1 Unificado: Datos Básicos + Género, Orientación y A quién ver con Carruseles Horizontales
+  // Paso 1 Unificado: Datos Básicos + Ciudad + Género, Orientación y A quién ver con Carruseles Horizontales
   Widget _buildBasicInfoAndGenderStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 60),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1801,26 +1772,14 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
             ),
           ),
-          const SizedBox(height: 32),
-          const Text('¿Dónde vives?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 22),
+          _buildHorizontalChipCarousel(
+            title: '¿Cuál es tu género?',
+            options: _genderOptions,
+            currentValue: _gender,
+            onSelected: (val) => setState(() => _gender = val),
+          ),
           const SizedBox(height: 8),
-          const Text('Selecciona tu ciudad para conectar con personas en tu área.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 16),
-          _buildCitySelector(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGenderAndOrientationStep() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('¿Cuál es tu género?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          _buildChipSelector('Género', _genderOptions, _gender, (val) => setState(() => _gender = val)),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             dense: true,
@@ -1829,7 +1788,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             value: _showGenderOnProfile,
-            activeColor: AppColors.primary,
+            activeThumbColor: AppColors.primary,
             onChanged: (val) => setState(() => _showGenderOnProfile = val),
           ),
           const SizedBox(height: 16),
@@ -2060,11 +2019,22 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             height: 48,
           ),
           const SizedBox(height: 20),
-          _buildMultiChipSelector(
+          _buildHorizontalMultiChipCarousel(
             title: '💖 Lenguajes del Amor',
             options: _loveLanguageOptions,
             selectedSet: _loveLanguages,
             maxSelection: 2,
+            onToggle: (opt) {
+              setState(() {
+                if (_loveLanguages.contains(opt)) {
+                  _loveLanguages.remove(opt);
+                } else if (_loveLanguages.length < 2) {
+                  _loveLanguages.add(opt);
+                } else {
+                  _showError('Puedes seleccionar hasta 2 lenguajes del amor');
+                }
+              });
+            },
           ),
           const SizedBox(height: 16),
           _buildHorizontalChipCarousel(
