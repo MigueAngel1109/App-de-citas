@@ -3,8 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
+import '../utils/session_manager.dart';
 import 'login_page.dart';
 import 'profile_setup_page.dart';
+import 'subscription_plans_page.dart';
 import '../widgets/almona_title.dart';
 
 class MyProfilePage extends StatelessWidget {
@@ -20,6 +22,7 @@ class MyProfilePage extends StatelessWidget {
   }
 
   void _cerrarSesion(BuildContext context) async {
+    await SessionManager.clearSession();
     await FirebaseAuth.instance.signOut();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -41,6 +44,11 @@ class MyProfilePage extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFF7A00), size: 28),
+            tooltip: 'Planes Almona Pro',
+            onPressed: () => SubscriptionPlansPage.show(context),
+          ),
           IconButton(
             icon: const Icon(Icons.edit_note, color: AppColors.primary, size: 28),
             tooltip: 'Editar Perfil',
@@ -124,6 +132,10 @@ class MyProfilePage extends StatelessWidget {
                       style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                     ),
                     const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
+                    if (data['plan'] == 'pro')
+                      _buildPlanBadge('PRO', const [Color(0xFFFF7A00), Color(0xFFFF007A)], Icons.workspace_premium_rounded)
+                    else if (data['plan'] == 'pro_plus')
+                      _buildPlanBadge('PRO+', const [Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFD946EF)], Icons.diamond_rounded),
                     if (instagramHandle.isNotEmpty)
                       InkWell(
                         onTap: () async {
@@ -174,12 +186,9 @@ class MyProfilePage extends StatelessWidget {
                 ] else
                   const SizedBox(height: 12),
 
-                // FOTO 1 (Principal)
+                // Carrusel deslizable de fotos de perfil (Swipe / Tinder style)
                 if (photoUrls.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: _buildContinuousPhoto(photoUrls[0]),
-                  )
+                  _ProfilePhotoCarousel(photoUrls: photoUrls)
                 else
                   Container(
                     width: double.infinity,
@@ -310,13 +319,6 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
-                // FOTO 2
-                if (photoUrls.length > 1)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: _buildContinuousPhoto(photoUrls[1]),
-                  ),
-
                 // Ocupación y Educación
                 if (work.isNotEmpty || school.isNotEmpty) ...[
                   _buildSectionHeader('Ocupación y Educación'),
@@ -354,13 +356,6 @@ class MyProfilePage extends StatelessWidget {
                   const SizedBox(height: 18),
                 ],
 
-                // FOTO 3
-                if (photoUrls.length > 2)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: _buildContinuousPhoto(photoUrls[2]),
-                  ),
-
                 // Estilo de Vida y Hábitos
                 _buildSectionHeader('Estilo de vida'),
                 _buildInfoCard(
@@ -379,13 +374,6 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
-                // FOTO 4
-                if (photoUrls.length > 3)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: _buildContinuousPhoto(photoUrls[3]),
-                  ),
-
                 // Más detalles (Educación, Familia, Comunicación, Idiomas)
                 _buildSectionHeader('Más sobre mí'),
                 _buildInfoCard(
@@ -402,14 +390,55 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
-                // FOTOS RESTANTES (5, 6, etc.)
-                for (int i = 4; i < photoUrls.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: _buildContinuousPhoto(photoUrls[i]),
-                  ),
-
                 const SizedBox(height: 10),
+
+                // Planes Almona Pro & Pro+ (Elegante y alineado con las tarjetas del perfil)
+                _buildInfoCard(
+                  InkWell(
+                    onTap: () => SubscriptionPlansPage.show(context),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFF7A00), Color(0xFFFF007A)],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.workspace_premium, color: Colors.white, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  data['plan'] == 'pro'
+                                      ? 'Mi suscripción: Almona Pro'
+                                      : (data['plan'] == 'pro_plus' ? 'Mi suscripción: Almona Pro+' : 'Planes Almona Pro & Pro+'),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  data['plan'] == 'pro' || data['plan'] == 'pro_plus'
+                                      ? 'Toca para ver beneficios o cambiar de plan'
+                                      : 'Conoce los planes y ventajas exclusivas',
+                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 // Botón Cerrar Sesión
                 SizedBox(
@@ -480,36 +509,6 @@ class MyProfilePage extends StatelessWidget {
     );
   }
 
-  Widget _buildContinuousPhoto(String url) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        height: 380,
-        width: double.infinity,
-        color: const Color(0xFF1E1E1E),
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Container(
-              color: AppColors.surface,
-              child: const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
-              ),
-            );
-          },
-          errorBuilder: (_, __, ___) => Container(
-            color: AppColors.surface,
-            child: const Center(
-              child: Icon(Icons.broken_image, size: 50, color: AppColors.textLight),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildInstagramGlyph({double size = 22}) {
     return Container(
       width: size,
@@ -568,5 +567,256 @@ class MyProfilePage extends StatelessWidget {
       ],
     );
   }
+
+  Widget _buildPlanBadge(String label, List<Color> gradient, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: gradient),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: gradient.first.withOpacity(0.4),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 13),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+/// Carrusel deslizador de fotos de perfil (Tinder / Bumble style)
+class _ProfilePhotoCarousel extends StatefulWidget {
+  final List<String> photoUrls;
+  const _ProfilePhotoCarousel({required this.photoUrls});
+
+  @override
+  State<_ProfilePhotoCarousel> createState() => _ProfilePhotoCarouselState();
+}
+
+class _ProfilePhotoCarouselState extends State<_ProfilePhotoCarousel> {
+  int _currentIndex = 0;
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goTo(int index) {
+    if (index >= 0 && index < widget.photoUrls.length) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.photoUrls.isEmpty) return const SizedBox.shrink();
+
+    final count = widget.photoUrls.length;
+
+    return Container(
+      height: 410,
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // PageView deslizable horizontalmente
+            PageView.builder(
+              controller: _pageController,
+              itemCount: count,
+              physics: const BouncingScrollPhysics(),
+              onPageChanged: (index) {
+                setState(() => _currentIndex = index);
+              },
+              itemBuilder: (context, index) {
+                return Image.network(
+                  widget.photoUrls[index],
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: AppColors.surface,
+                      child: const Center(
+                        child: CircularProgressIndicator(color: AppColors.primary),
+                      ),
+                    );
+                  },
+                  errorBuilder: (_, __, ___) => Container(
+                    color: const Color(0xFF1E1E1E),
+                    child: const Center(
+                      child: Icon(Icons.broken_image, size: 50, color: Colors.white54),
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            // Sombra degradada superior para legibilidad de barras indicadoras
+            if (count > 1)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 55,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.45),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Barras estilo historias / Tinder en la parte superior
+            if (count > 1)
+              Positioned(
+                top: 12,
+                left: 12,
+                right: 12,
+                child: Row(
+                  children: List.generate(count, (i) {
+                    final isCurrent = i == _currentIndex;
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => _goTo(i),
+                        child: Container(
+                          height: 4,
+                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                          decoration: BoxDecoration(
+                            color: isCurrent ? Colors.white : Colors.white.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(2),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black26, blurRadius: 3),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+
+            // Contador de fotos (ej: 1 / 4) abajo a la derecha
+            if (count > 1)
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_currentIndex + 1} / $count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+
+            // Botón flecha izquierda para cambiar foto fácilmente
+            if (count > 1 && _currentIndex > 0)
+              Positioned(
+                left: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _goTo(_currentIndex - 1),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.38),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.chevron_left, color: Colors.white, size: 26),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Botón flecha derecha para cambiar foto fácilmente
+            if (count > 1 && _currentIndex < count - 1)
+              Positioned(
+                right: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _goTo(_currentIndex + 1),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.38),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 26),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 

@@ -9,6 +9,7 @@ import '../widgets/martini_icon.dart';
 import '../widgets/almona_title.dart';
 import 'home_page.dart';
 import 'profile_setup_page.dart';
+import '../utils/session_manager.dart';
 
 // Enum para los estados de login
 enum LoginState {
@@ -48,20 +49,29 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // En entorno de pruebas y en la web, siempre regresamos al Login al iniciar o recargar
-      // para facilitar pruebas de registro y navegación desde cero sin quedarse en el último paso.
-      // En producción móvil (!kIsWeb && !kDebugMode), se mantiene la sesión guardada automáticamente.
-      const bool forzarLoginEnPruebas = kIsWeb || kDebugMode;
-      if (forzarLoginEnPruebas) {
-        if (FirebaseAuth.instance.currentUser != null) {
-          await FirebaseAuth.instance.signOut();
-        }
-        return;
-      }
-
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        _manejarNavegacion(user);
+        final expired = await SessionManager.isSessionExpired();
+        if (expired) {
+          await FirebaseAuth.instance.signOut();
+          await SessionManager.clearSession();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⏱️ Tu sesión ha expirado por inactividad (20 min). Por favor inicia sesión.'),
+                backgroundColor: Colors.black87,
+                duration: Duration(seconds: 4),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          // Sesión activa dentro de la ventana de 20 minutos: renovar actividad y entrar
+          await SessionManager.updateActivity();
+          if (mounted) {
+            _manejarNavegacion(user);
+          }
+        }
       }
     });
   }
@@ -167,6 +177,8 @@ class _LoginPageState extends State<LoginPage> {
           );
 
       if (!mounted) return;
+      await SessionManager.updateActivity();
+      if (!mounted) return;
       
       // Al ser un nuevo registro, el perfil aún no existe en Firestore.
       // Navegamos directamente a ProfileSetupPage sin esperas de red innecesarias para máxima fluidez en iOS.
@@ -255,6 +267,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _manejarNavegacion(User user) async {
+    await SessionManager.updateActivity();
     try {
       // Usamos un timeout estricto de 6s para no congelar la pantalla en iOS ante reconexiones de red
       DocumentSnapshot<Map<String, dynamic>>? doc;

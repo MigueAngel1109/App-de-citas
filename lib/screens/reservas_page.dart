@@ -5,6 +5,7 @@ import '../utils/app_colors.dart';
 import '../utils/place_photo_service.dart';
 import 'publish_reservation_page.dart';
 import 'chat_detail_page.dart';
+import 'subscription_plans_page.dart';
 import '../widgets/user_profile_modal.dart';
 import '../widgets/almona_title.dart';
 
@@ -1564,6 +1565,14 @@ class _ReservasPageState extends State<ReservasPage> {
             fontSize: 22,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFF7A00), size: 28),
+            tooltip: 'Planes Almona Pro',
+            onPressed: () => SubscriptionPlansPage.show(context),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: _buildMyReservationsTab(currentUser.uid),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,

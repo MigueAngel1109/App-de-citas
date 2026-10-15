@@ -12,6 +12,7 @@ import '../utils/secrets.dart';
 import '../utils/place_photo_service.dart';
 import '../utils/place_photo_stub.dart' if (dart.library.js) '../utils/place_photo_web.dart' as js_bridge;
 import 'discover_page.dart';
+import 'subscription_plans_page.dart';
 
 class PlaceAutocomplete {
   final String description;
@@ -1192,6 +1193,25 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     try {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? {};
+
+      // Verificar límite de reservas simultáneas según el plan de suscripción
+      final plan = userData['plan']?.toString() ?? 'free';
+      if (plan != 'pro_plus') {
+        final existingQuery = await FirebaseFirestore.instance
+            .collection('reservations')
+            .where('userId', isEqualTo: user.uid)
+            .get();
+        final currentCount = existingQuery.docs.length;
+        final maxAllowed = plan == 'pro' ? 3 : 1;
+        if (currentCount >= maxAllowed) {
+          setState(() => _isPublishing = false);
+          if (mounted) {
+            _showPlanUpgradeDialog(plan, currentCount);
+          }
+          return;
+        }
+      }
+
       final userName = userData['name'] ?? 'Usuario';
       final pList = (userData['photoUrls'] as List?) ?? (userData['photos'] as List?);
       final userPhoto = (pList != null && pList.isNotEmpty) ? pList[0] : '';
@@ -1257,6 +1277,59 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       setState(() => _isPublishing = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
+  }
+
+  void _showPlanUpgradeDialog(String currentPlan, int count) {
+    final isPro = currentPlan == 'pro';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E28),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFFF7A00), Color(0xFFFF007A)]),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Límite de Reservas',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          isPro
+              ? 'Ya tienes $count reservas activas (máximo permitido en tu plan Pro). Pásate a Almona Pro+ para publicar reservas simultáneas ILIMITADAS.'
+              : 'Ya tienes $count reserva activa (máximo permitido en la cuenta Gratuita). Pásate a Almona Pro para tener hasta 3 simultáneas o Pro+ para reservas ILIMITADAS.',
+          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cerrar', style: TextStyle(color: Colors.white.withOpacity(0.5))),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              SubscriptionPlansPage.show(context, initialTier: isPro ? SubscriptionTier.proPlus : SubscriptionTier.pro);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF5E3A),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+            child: const Text('Ver Planes Pro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

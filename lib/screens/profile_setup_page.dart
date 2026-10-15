@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
+import '../utils/session_manager.dart';
 import 'home_page.dart';
 import 'login_page.dart';
 import '../widgets/zone_selection_map.dart';
@@ -407,6 +408,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   void _returnToLogin() async {
+    await SessionManager.clearSession();
     await FirebaseAuth.instance.signOut();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
