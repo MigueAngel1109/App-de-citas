@@ -8,6 +8,7 @@ import 'login_page.dart';
 import 'profile_setup_page.dart';
 import 'subscription_plans_page.dart';
 import '../widgets/almona_title.dart';
+import '../widgets/profile_prompts_widget.dart';
 
 class MyProfilePage extends StatelessWidget {
   const MyProfilePage({super.key});
@@ -121,7 +122,52 @@ class MyProfilePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Nombre, edad, verificación y @instagram en la cabecera
+                // Carrusel deslizable de fotos de perfil (Swipe / Tinder style)
+                if (photoUrls.isNotEmpty)
+                  _ProfilePhotoCarousel(photoUrls: photoUrls)
+                else
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.inputBorder),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.add_a_photo_outlined, size: 48, color: AppColors.primary),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Aún no tienes fotos de perfil',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Sube tus mejores fotos para que las personas puedan reconocerte en tus reservas.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
+                            );
+                          },
+                          icon: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                          label: const Text('Subir Fotos Ahora', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Nombre, edad, verificación y @instagram debajo de las fotos
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 8,
@@ -173,7 +219,7 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
 
-                // Solo Ciudad visible en cabecera
+                // Solo Ciudad visible debajo de la cabecera
                 if (city != null && city.isNotEmpty) ...[
                   Wrap(
                     spacing: 8,
@@ -182,54 +228,9 @@ class MyProfilePage extends StatelessWidget {
                       _buildTagBadge('📍 $city', isHighlight: true),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 18),
                 ] else
-                  const SizedBox(height: 12),
-
-                // Carrusel deslizable de fotos de perfil (Swipe / Tinder style)
-                if (photoUrls.isNotEmpty)
-                  _ProfilePhotoCarousel(photoUrls: photoUrls)
-                else
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 18),
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.inputBorder),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.add_a_photo_outlined, size: 48, color: AppColors.primary),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Aún no tienes fotos de perfil',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Sube tus mejores fotos para que las personas puedan reconocerte en tus reservas.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (context) => const ProfileSetupPage(isEditMode: true)),
-                            );
-                          },
-                          icon: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
-                          label: const Text('Subir Fotos Ahora', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(height: 18),
 
                 // =========================================================
                 // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):
@@ -258,19 +259,22 @@ class MyProfilePage extends StatelessWidget {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 22),
-                          const SizedBox(width: 10),
-                          const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
-                              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                          const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 20),
+                          const SizedBox(width: 8),
+                          const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
+                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
                         ],
@@ -279,22 +283,87 @@ class MyProfilePage extends StatelessWidget {
 
                       // 3. Lenguajes del Amor
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 22),
-                          const SizedBox(width: 10),
+                          const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Lenguajes del Amor: ',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary),
+                          ),
+                          const SizedBox(width: 4),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Lenguajes del Amor:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  loveLanguage != null && loveLanguage.toString().isNotEmpty ? loveLanguage.toString() : 'No especificado',
-                                  style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.3),
+                            child: () {
+                              final loveRaw = loveLanguage ?? personal['loveLanguages'];
+                              List<String> list = [];
+                              if (loveRaw is List) {
+                                list = loveRaw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+                              } else if (loveRaw != null && loveRaw.toString().trim().isNotEmpty) {
+                                list = loveRaw.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                              }
+
+                              if (list.isEmpty) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      'No especificado',
+                                      style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              if (list.length == 1) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerLeft,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        list.first,
+                                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                physics: const BouncingScrollPhysics(),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: list.map((lang) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 6),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          lang,
+                                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
                                 ),
-                              ],
-                            ),
+                              );
+                            }(),
                           ),
                         ],
                       ),
@@ -304,13 +373,23 @@ class MyProfilePage extends StatelessWidget {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 22),
-                          const SizedBox(width: 10),
-                          const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                          const SizedBox(width: 6),
-                          Text(
-                            zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
-                            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                          const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 20),
+                          const SizedBox(width: 8),
+                          const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
+                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -336,61 +415,53 @@ class MyProfilePage extends StatelessWidget {
                 // Intereses y Pasiones
                 if (interests.isNotEmpty) ...[
                   _buildSectionHeader('Intereses y Pasiones'),
-                  _buildInfoCard(
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: interests.map((tag) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppColors.inputBorder),
-                          ),
-                          child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
-                        );
-                      }).toList(),
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: interests.map((tag) => _buildTagBadge(tag)).toList(),
                   ),
                   const SizedBox(height: 18),
                 ],
 
                 // Estilo de Vida y Hábitos
                 _buildSectionHeader('Estilo de vida'),
-                _buildInfoCard(
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      if (pets != null) _buildTagBadge('🐾 $pets'),
-                      if (drinking != null) _buildTagBadge('🍷 $drinking'),
-                      if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
-                      if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
-                      if (workout != null) _buildTagBadge('💪 $workout'),
-                      if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
-                    ],
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (pets != null) _buildTagBadge('🐾 $pets'),
+                    if (drinking != null) _buildTagBadge('🍷 $drinking'),
+                    if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
+                    if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
+                    if (workout != null) _buildTagBadge('💪 $workout'),
+                    if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
+                  ],
                 ),
                 const SizedBox(height: 18),
 
                 // Más detalles (Educación, Familia, Comunicación, Idiomas)
                 _buildSectionHeader('Más sobre mí'),
-                _buildInfoCard(
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      if (education != null) _buildTagBadge('🎓 $education'),
-                      if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
-                      if (communication != null) _buildTagBadge('💬 $communication'),
-                      if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
-                    ],
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (education != null) _buildTagBadge('🎓 $education'),
+                    if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
+                    if (communication != null) _buildTagBadge('💬 $communication'),
+                    if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
+                  ],
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 20),
 
-                const SizedBox(height: 10),
+                // =========================================================
+                // SECCIÓN "PROMPTS ROMPEHIELOS" (DESPLEGABLES POR CATEGORÍA)
+                // =========================================================
+                ProfilePromptsSection(
+                  prompts: (data['prompts'] as Map<String, dynamic>?) ?? {},
+                  userId: user.uid,
+                  isEditable: true,
+                ),
+                const SizedBox(height: 20),
 
                 // Planes Almona Pro & Pro+ (Elegante y alineado con las tarjetas del perfil)
                 _buildInfoCard(
@@ -489,13 +560,13 @@ class MyProfilePage extends StatelessWidget {
 
   Widget _buildTagBadge(String text, {bool isHighlight = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: isHighlight ? AppColors.primary.withOpacity(0.08) : AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
+        color: isHighlight ? AppColors.primary.withValues(alpha: 0.08) : const Color(0xFFEBEBEB),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isHighlight ? AppColors.primary.withOpacity(0.3) : AppColors.inputBorder,
-          width: isHighlight ? 1.2 : 1.0,
+          color: isHighlight ? AppColors.primary.withValues(alpha: 0.3) : const Color(0xFFDADADA),
+          width: 1.0,
         ),
       ),
       child: Text(
@@ -503,7 +574,7 @@ class MyProfilePage extends StatelessWidget {
         style: TextStyle(
           fontSize: 13,
           color: isHighlight ? AppColors.primary : AppColors.textPrimary,
-          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500,
+          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
         ),
       ),
     );

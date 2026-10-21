@@ -11,6 +11,7 @@ import '../utils/session_manager.dart';
 import 'home_page.dart';
 import 'login_page.dart';
 import '../widgets/zone_selection_map.dart';
+import '../widgets/profile_prompts_widget.dart';
 
 class ProfileSetupPage extends StatefulWidget {
   final bool isEditMode;
@@ -139,6 +140,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
   final Set<String> _languages = {'Español'};
   final List<String> _languagesOptions = ['Español', 'Inglés', 'Francés', 'Portugués', 'Italiano', 'Alemán', 'Mandarín', 'Japonés'];
+  Map<String, dynamic> _prompts = {};
 
   // -------------------------------------------------------------
   // 5. CAMPOS ABIERTOS Y REDES
@@ -317,6 +319,10 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             _interests.clear();
             final intList = data['interests'] as List<dynamic>;
             _interests.addAll(intList.map((e) => e.toString()));
+          }
+
+          if (data['prompts'] != null && data['prompts'] is Map) {
+            _prompts = Map<String, dynamic>.from(data['prompts'] as Map);
           }
         }
       }
@@ -1322,6 +1328,16 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 options: _languagesOptions,
                 selectedSet: _languages,
                 maxSelection: _languagesOptions.length,
+              ),
+              const SizedBox(height: 24),
+
+              // =========================================================
+              // PROMPTS ROMPEHIELOS
+              // =========================================================
+              ProfilePromptsSection(
+                prompts: _prompts,
+                userId: FirebaseAuth.instance.currentUser?.uid,
+                isEditable: true,
               ),
               const SizedBox(height: 20),
             ],

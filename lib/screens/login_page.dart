@@ -49,6 +49,16 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Al ejecutar flutter run (kDebugMode) o en web, cerramos sesión previa
+      // para que la pantalla de Login siempre aparezca y solicite correo y contraseña.
+      if (kDebugMode || kIsWeb) {
+        if (FirebaseAuth.instance.currentUser != null) {
+          await FirebaseAuth.instance.signOut();
+          await SessionManager.clearSession();
+        }
+        return;
+      }
+
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final expired = await SessionManager.isSessionExpired();

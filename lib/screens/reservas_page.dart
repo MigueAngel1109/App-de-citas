@@ -1555,16 +1555,10 @@ class _ReservasPageState extends State<ReservasPage> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 0.5,
+        elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'Mis Reservas',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w900,
-            fontSize: 22,
-          ),
-        ),
+        centerTitle: false,
+        title: const AlmonaTitle(),
         actions: [
           IconButton(
             icon: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFF7A00), size: 28),

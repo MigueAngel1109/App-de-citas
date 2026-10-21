@@ -1,23 +1,38 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import '../screens/chat_detail_page.dart';
+import 'profile_prompts_widget.dart';
+
+import 'discovery_filters_modal.dart';
 
 /// Módulo de Descubrir Personas:
 /// Muestra directamente el perfil completo con fotos, datos y estilo de vida (sin swipe de tarjetas),
 /// con botones flotantes ("burbujas sobrepuestas") para "No invitar" (Pasar) e "Invitar" (Reserva/Like).
 class TinderSwipeView extends StatefulWidget {
   final VoidCallback onSwitchToMap;
+  final DiscoveryFilters? filters;
+  final bool isPro;
+  final VoidCallback? onOpenFilters;
 
-  const TinderSwipeView({super.key, required this.onSwitchToMap});
+  const TinderSwipeView({
+    super.key,
+    required this.onSwitchToMap,
+    this.filters,
+    this.isPro = false,
+    this.onOpenFilters,
+  });
 
   @override
   State<TinderSwipeView> createState() => _TinderSwipeViewState();
 }
 
 class _TinderSwipeViewState extends State<TinderSwipeView> {
+  final List<Map<String, dynamic>> _rawCandidates = [];
   final List<Map<String, dynamic>> _candidates = [];
   bool _isLoading = true;
   int _currentIndex = 0;
@@ -27,15 +42,65 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   String? _myInterestedIn;
   String _myName = 'Usuario';
   String _myPhoto = '';
+  StreamSubscription? _userSub;
+  StreamSubscription? _candidatesSub;
 
   @override
   void initState() {
     super.initState();
     _loadCandidates();
+    _listenToUserChanges();
+  }
+
+  @override
+  void didUpdateWidget(covariant TinderSwipeView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.filters != widget.filters || oldWidget.isPro != widget.isPro) {
+      _applyFilters();
+    }
+  }
+
+  void _applyFilters() {
+    final filters = widget.filters;
+    final isPro = widget.isPro;
+
+    List<Map<String, dynamic>> filtered;
+    if (filters != null) {
+      filtered = _rawCandidates.where((c) => filters.matchesCandidate(c, isPro: isPro)).toList();
+    } else {
+      filtered = List.from(_rawCandidates);
+    }
+
+    setState(() {
+      _candidates.clear();
+      _candidates.addAll(filtered);
+      if (_currentIndex >= _candidates.length) {
+        _currentIndex = 0;
+      }
+    });
+  }
+
+  void _listenToUserChanges() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _userSub = FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((snap) {
+      if (snap.exists && mounted) {
+        final data = snap.data();
+        if (data != null) {
+          final newPref = data['interestedIn']?.toString();
+          if (newPref != _myInterestedIn) {
+            _myInterestedIn = newPref;
+            _listenToCandidates();
+          }
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _userSub?.cancel();
+    _candidatesSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -67,6 +132,47 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     }
   }
 
+  void _listenToCandidates() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _candidatesSub?.cancel();
+    _candidatesSub = FirebaseFirestore.instance.collection('users').limit(60).snapshots().listen((querySnapshot) {
+      if (!mounted) return;
+
+      final List<Map<String, dynamic>> updatedList = [];
+      for (var doc in querySnapshot.docs) {
+        // En producción se excluye al usuario mismo; en debug o pruebas permitimos que aparezca
+        // para que pueda probar y ver inmediatamente sus cambios y prompts respondidos:
+        if (doc.id == user.uid && !kDebugMode) continue;
+
+        final data = doc.data();
+        data['id'] = doc.id;
+        updatedList.add(data);
+      }
+
+      if (_rawCandidates.isEmpty) {
+        updatedList.shuffle();
+        _rawCandidates.addAll(updatedList);
+      } else {
+        for (final updated in updatedList) {
+          final idx = _rawCandidates.indexWhere((c) => c['id'] == updated['id']);
+          if (idx != -1) {
+            _rawCandidates[idx] = updated;
+          } else {
+            _rawCandidates.add(updated);
+          }
+        }
+      }
+
+      _applyFilters();
+      if (mounted) setState(() => _isLoading = false);
+    }, onError: (e) {
+      debugPrint('Error en stream de candidatos: $e');
+      if (mounted) setState(() => _isLoading = false);
+    });
+  }
+
   Future<void> _loadCandidates() async {
     setState(() => _isLoading = true);
     final user = FirebaseAuth.instance.currentUser;
@@ -76,7 +182,6 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     }
 
     try {
-      // 1. Obtener preferencias del usuario actual
       final myDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (myDoc.exists) {
         final myData = myDoc.data();
@@ -90,42 +195,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
         }
       }
 
-      // 2. Consultar usuarios en Firestore
-      final querySnapshot = await FirebaseFirestore.instance.collection('users').limit(60).get();
-
-      final List<Map<String, dynamic>> list = [];
-      for (var doc in querySnapshot.docs) {
-        if (doc.id == user.uid) continue; // Excluirse a sí mismo
-
-        final data = doc.data();
-        data['id'] = doc.id;
-
-        // Filtrar por a quién busca (interestedIn)
-        final gender = (data['gender'] ?? '').toString().toLowerCase();
-        if (_myInterestedIn != null && _myInterestedIn!.isNotEmpty) {
-          final pref = _myInterestedIn!.toLowerCase();
-          if (pref.contains('mujer') && !gender.contains('mujer')) {
-            continue;
-          }
-          if (pref.contains('hombre') && !gender.contains('hombre')) {
-            continue;
-          }
-        }
-
-        list.add(data);
-      }
-
-      // Mezclar aleatoriamente para variedad
-      list.shuffle();
-
-      if (mounted) {
-        setState(() {
-          _candidates.clear();
-          _candidates.addAll(list);
-          _currentIndex = 0;
-          _isLoading = false;
-        });
-      }
+      _listenToCandidates();
     } catch (e) {
       debugPrint('Error loading candidates: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -828,12 +898,22 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
         .where((u) => u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('blob:')))
         .toList();
 
+    final bool hasPrompts = AnsweredPromptsCards.hasAnyAnswer(candidate['prompts']);
+    final bool has6OrMorePhotos = photoUrls.length >= 6;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Nombre, edad, verificación y @instagram en la cabecera
+          // FOTO 1 (Principal)
+          if (photoUrls.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _buildContinuousPhoto(photoUrls[0]),
+            ),
+
+          // Nombre, edad, verificación y @instagram debajo de la foto
           Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
@@ -876,7 +956,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
           ),
           const SizedBox(height: 8),
 
-          // Solo Ciudad visible en cabecera
+          // Ciudad visible
           if (city != null && city.isNotEmpty) ...[
             Wrap(
               spacing: 8,
@@ -885,16 +965,9 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 _buildTagBadge('📍 $city', isHighlight: true),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
           ] else
-            const SizedBox(height: 12),
-
-          // FOTO 1 (Principal)
-          if (photoUrls.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: _buildContinuousPhoto(photoUrls[0]),
-            ),
+            const SizedBox(height: 18),
 
           // =========================================================
           // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):
@@ -923,19 +996,22 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 22),
-                    const SizedBox(width: 10),
-                    const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
-                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                    const Icon(Icons.psychology_outlined, color: AppColors.primary, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Personalidad MBTI: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          mbti != null && mbti.toString().isNotEmpty ? mbti.toString() : 'No especificado',
+                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
@@ -944,22 +1020,87 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
                 // 3. Lenguajes del Amor
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 22),
-                    const SizedBox(width: 10),
+                    const Icon(Icons.favorite_outline_rounded, color: Colors.pinkAccent, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Lenguajes del Amor: ',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(width: 4),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Lenguajes del Amor:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                          const SizedBox(height: 4),
-                          Text(
-                            loveLanguage != null && loveLanguage.toString().isNotEmpty ? loveLanguage.toString() : 'No especificado',
-                            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.3),
+                      child: () {
+                        final loveRaw = loveLanguage ?? personal['loveLanguages'];
+                        List<String> list = [];
+                        if (loveRaw is List) {
+                          list = loveRaw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+                        } else if (loveRaw != null && loveRaw.toString().trim().isNotEmpty) {
+                          list = loveRaw.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                        }
+
+                        if (list.isEmpty) {
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'No especificado',
+                                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (list.length == 1) {
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  list.first,
+                                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: list.map((lang) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    lang,
+                                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
                           ),
-                        ],
-                      ),
+                        );
+                      }(),
                     ),
                   ],
                 ),
@@ -969,13 +1110,23 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 22),
-                    const SizedBox(width: 10),
-                    const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-                    const SizedBox(width: 6),
-                    Text(
-                      zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
-                      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                    const Icon(Icons.auto_awesome_outlined, color: Colors.amber, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Signo Zodiacal: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          zodiac != null && zodiac.toString().isNotEmpty ? zodiac.toString() : 'No especificado',
+                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1008,22 +1159,10 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
           // Intereses y Pasiones
           if (interests.isNotEmpty) ...[
             _buildSectionHeader('Intereses y Pasiones'),
-            _buildInfoCard(
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: interests.map((tag) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.inputBorder),
-                    ),
-                    child: Text(tag, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
-                  );
-                }).toList(),
-              ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: interests.map((tag) => _buildTagBadge(tag)).toList(),
             ),
             const SizedBox(height: 18),
           ],
@@ -1037,19 +1176,17 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
           // Estilo de Vida y Hábitos
           _buildSectionHeader('Estilo de vida'),
-          _buildInfoCard(
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (pets != null) _buildTagBadge('🐾 $pets'),
-                if (drinking != null) _buildTagBadge('🍷 $drinking'),
-                if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
-                if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
-                if (workout != null) _buildTagBadge('💪 $workout'),
-                if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
-              ],
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (pets != null) _buildTagBadge('🐾 $pets'),
+              if (drinking != null) _buildTagBadge('🍷 $drinking'),
+              if (smokingTobacco != null) _buildTagBadge('🚬 $smokingTobacco'),
+              if (smokingCannabis != null) _buildTagBadge('🌿 Cannabis: $smokingCannabis'),
+              if (workout != null) _buildTagBadge('💪 $workout'),
+              if (sleepPattern != null) _buildTagBadge('⏰ $sleepPattern'),
+            ],
           ),
           const SizedBox(height: 18),
 
@@ -1062,26 +1199,67 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
           // Más detalles (Educación, Familia, Comunicación, Idiomas)
           _buildSectionHeader('Más sobre mí'),
-          _buildInfoCard(
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (education != null) _buildTagBadge('🎓 $education'),
-                if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
-                if (communication != null) _buildTagBadge('💬 $communication'),
-                if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
-              ],
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (education != null) _buildTagBadge('🎓 $education'),
+              if (familyPlans != null) _buildTagBadge('👶 $familyPlans'),
+              if (communication != null) _buildTagBadge('💬 $communication'),
+              if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
+            ],
           ),
           const SizedBox(height: 18),
 
-          // FOTOS RESTANTES (5, 6, etc.)
-          for (int i = 4; i < photoUrls.length; i++)
+          // =========================================================
+          // FOTOS RESTANTES Y PROMPT(S) RESPONDIDOS
+          // =========================================================
+          if (has6OrMorePhotos) ...[
+            // 1. Si tiene 6 o más fotos: Foto 5 (penúltima)
             Padding(
               padding: const EdgeInsets.only(bottom: 18),
-              child: _buildContinuousPhoto(photoUrls[i]),
+              child: _buildContinuousPhoto(photoUrls[4]),
             ),
+
+            // 2. Prompt(s) en medio de las dos últimas fotos
+            if (hasPrompts)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: AnsweredPromptsCards(
+                  prompts: Map<String, dynamic>.from(candidate['prompts'] as Map),
+                ),
+              ),
+
+            // 3. Foto 6 (última foto estándar)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: _buildContinuousPhoto(photoUrls[5]),
+            ),
+
+            // Fotos adicionales si hubiese más de 6
+            for (int i = 6; i < photoUrls.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _buildContinuousPhoto(photoUrls[i]),
+              ),
+          ] else ...[
+            // Si NO cuenta con todas las fotos (menos de 6 fotos):
+            // Mostramos la Foto 5 si existe (índice 4)
+            if (photoUrls.length > 4)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _buildContinuousPhoto(photoUrls[4]),
+              ),
+
+            // Y agregamos el prompt respondido por el usuario ABAJO DE TODO:
+            if (hasPrompts)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: AnsweredPromptsCards(
+                  prompts: Map<String, dynamic>.from(candidate['prompts'] as Map),
+                ),
+              ),
+          ],
 
           const SizedBox(height: 10),
         ],
@@ -1114,13 +1292,13 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
   Widget _buildTagBadge(String text, {bool isHighlight = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: isHighlight ? AppColors.primary.withOpacity(0.08) : AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
+        color: isHighlight ? AppColors.primary.withValues(alpha: 0.08) : const Color(0xFFEBEBEB),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isHighlight ? AppColors.primary.withOpacity(0.3) : AppColors.inputBorder,
-          width: isHighlight ? 1.2 : 1.0,
+          color: isHighlight ? AppColors.primary.withValues(alpha: 0.3) : const Color(0xFFDADADA),
+          width: 1.0,
         ),
       ),
       child: Text(
@@ -1128,7 +1306,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
         style: TextStyle(
           fontSize: 13,
           color: isHighlight ? AppColors.primary : AppColors.textPrimary,
-          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500,
+          fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
         ),
       ),
     );
@@ -1228,25 +1406,26 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   // -------------------------------------------------------------
   Widget _buildFloatingActionBubbles(Map<String, dynamic> candidate) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        // 1. Botón No Invitar (como estaba antes: cruz roja)
+        // 1. Botón No Invitar / Pasar (Cruz roja sobre fondo blanco)
         _buildCircleButton(
           icon: Icons.close,
           color: Colors.redAccent,
-          size: 66,
-          iconSize: 30,
-          label: 'No invitar',
+          backgroundColor: Colors.white,
+          size: 58,
+          iconSize: 28,
           onTap: _onPass,
         ),
+        const SizedBox(width: 14),
 
-        // 2. Botón Invitar a Reserva (como estaba antes: calendario)
+        // 2. Botón Invitar a Reserva (Calendario oscuro sobre fondo blanco)
         _buildCircleButton(
           icon: Icons.calendar_month_rounded,
           color: AppColors.primary,
-          size: 66,
-          iconSize: 30,
-          label: 'Invitar',
+          backgroundColor: Colors.white,
+          size: 58,
+          iconSize: 28,
           onTap: () => _promptDateInvitation(candidate),
         ),
       ],
@@ -1256,57 +1435,41 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   Widget _buildCircleButton({
     required IconData icon,
     required Color color,
+    Color backgroundColor = Colors.white,
     required double size,
     required double iconSize,
     required VoidCallback onTap,
-    String? label,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.18),
-                blurRadius: 16,
-                offset: const Offset(0, 5),
-              ),
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
           ),
-          child: Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: Center(
-                child: Icon(icon, color: color, size: iconSize),
-              ),
-            ),
-          ),
-        ),
-        if (label != null) ...[
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
-      ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Center(
+            child: Icon(icon, color: color, size: iconSize),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1314,6 +1477,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   // ESTADO VACÍO CUANDO NO HAY MÁS CANDIDATOS
   // -------------------------------------------------------------
   Widget _buildEmptyState() {
+    final hasFilters = widget.filters != null && widget.filters!.hasActiveFilters(isPro: widget.isPro);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1326,41 +1490,60 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 color: AppColors.primary.withOpacity(0.08),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.celebration_outlined, size: 54, color: AppColors.primary),
+              child: Icon(
+                hasFilters ? Icons.tune_rounded : Icons.celebration_outlined,
+                size: 54,
+                color: hasFilters ? const Color(0xFFFF5E3A) : AppColors.primary,
+              ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              '¡Has visto todos los perfiles!',
+            Text(
+              hasFilters ? 'Sin resultados con estos filtros' : '¡Has visto todos los perfiles!',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
+              style: const TextStyle(
+                fontSize: 21,
                 fontWeight: FontWeight.bold,
                 color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Por ahora has explorado a todas las personas según tus preferencias en Bogotá. Vuelve a consultar pronto o ajusta tus zonas.',
+            Text(
+              hasFilters
+                  ? 'No hay personas en este momento que cumplan con todos los filtros seleccionados en Bogotá. Ajusta o amplía tus filtros para ver más perfiles.'
+                  : 'Por ahora has explorado a todas las personas según tus preferencias en Bogotá. Vuelve a consultar pronto o ajusta tus zonas.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
+              style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _currentIndex = 0;
-                });
-                _loadCandidates();
-              },
-              icon: const Icon(Icons.refresh, color: Colors.white),
-              label: const Text('Volver a explorar perfiles',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            if (hasFilters && widget.onOpenFilters != null)
+              ElevatedButton.icon(
+                onPressed: widget.onOpenFilters,
+                icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 20),
+                label: const Text('Modificar Filtros',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _currentIndex = 0;
+                  });
+                  _loadCandidates();
+                },
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                label: const Text('Volver a explorar perfiles',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
               ),
-            ),
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: widget.onSwitchToMap,

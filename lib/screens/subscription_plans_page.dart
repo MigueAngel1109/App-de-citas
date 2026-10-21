@@ -328,10 +328,12 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Banner Principal de la insignia seleccionada
+                      // Banner Principal de la insignia seleccionada (Tamaño homogéneo garantizado)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
-                        padding: const EdgeInsets.all(22),
+                        width: double.infinity,
+                        constraints: const BoxConstraints(minHeight: 195),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: _tierGradient,
@@ -341,18 +343,19 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                           borderRadius: BorderRadius.circular(28),
                           boxShadow: [
                             BoxShadow(
-                              color: _tierAccentColor.withOpacity(0.4),
+                              color: _tierAccentColor.withValues(alpha: 0.4),
                               blurRadius: 28,
                               offset: const Offset(0, 10),
                             ),
                           ],
                         ),
                         child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
+                                color: Colors.white.withValues(alpha: 0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -372,15 +375,22 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                               ),
                             ),
                             const SizedBox(height: 6),
-                            Text(
-                              isPro
-                                  ? 'Multiplica tus planes, citas y visibilidad'
-                                  : 'Exclusividad máxima, reservas ilimitadas y Top Prioridad',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.white.withOpacity(0.9),
-                                fontWeight: FontWeight.w500,
+                            SizedBox(
+                              height: 38,
+                              child: Center(
+                                child: Text(
+                                  isPro
+                                      ? 'Multiplica tus planes, citas y visibilidad'
+                                      : 'Exclusividad máxima, reservas ilimitadas y Top Prioridad',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.35,
+                                  ),
+                                ),
                               ),
                             ),
                           ],

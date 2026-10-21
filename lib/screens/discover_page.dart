@@ -11,6 +11,8 @@ import '../utils/app_colors.dart';
 import '../utils/marker_generator.dart';
 import '../widgets/user_profile_modal.dart';
 import '../widgets/tinder_swipe_view.dart';
+import '../widgets/almona_title.dart';
+import '../widgets/discovery_filters_modal.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
 import 'publish_reservation_page.dart';
@@ -83,6 +85,30 @@ class DiscoverPageState extends State<DiscoverPage> {
   LatLng _lastCameraPosition = _bogotaCenter;
   bool _showPeopleDiscovery = false;
   final Set<String> _preferredZones = {};
+  String? _myInterestedIn;
+  Map<String, dynamic>? _currentUserData;
+  late DiscoveryFilters _filters;
+  bool _hasCustomFilters = false;
+
+  bool get _isCurrentUserPro {
+    final plan = (_currentUserData?['plan'] ?? _currentUserData?['subscription']?['tier'])?.toString().toLowerCase();
+    return plan == 'pro' || plan == 'pro_plus';
+  }
+
+  void _openFiltersModal() {
+    DiscoveryFiltersModal.show(
+      context: context,
+      initialFilters: _filters,
+      isPro: _isCurrentUserPro,
+      onApply: (newFilters) {
+        setState(() {
+          _filters = newFilters;
+          _hasCustomFilters = true;
+        });
+        _listenToReservations();
+      },
+    );
+  }
 
   // Cache para no descargar la foto cada vez que se mueve el mapa
   final Map<String, BitmapDescriptor> _markerCache = {};
@@ -94,6 +120,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   @override
   void initState() {
     super.initState();
+    _filters = DiscoveryFilters();
     _initBlueDot();
     _determinePosition();
     _listenToReservations();
@@ -119,20 +146,33 @@ class DiscoverPageState extends State<DiscoverPage> {
     if (user == null) return;
     _userSub = FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((snap) {
         if (mounted) {
-          bool zonesChanged = false;
+          bool filterChanged = false;
           if (snap.exists && snap.data() != null) {
             final data = snap.data()!;
+            _currentUserData = data;
             if (data['preferredZones'] != null && data['preferredZones'] is List) {
               final newZones = (data['preferredZones'] as List).map((e) => e.toString()).toSet();
               if (newZones.length != _preferredZones.length || !_preferredZones.containsAll(newZones)) {
                 _preferredZones.clear();
                 _preferredZones.addAll(newZones);
-                zonesChanged = true;
+                if (!_hasCustomFilters) {
+                  _filters.selectedZones = Set.from(newZones);
+                }
+                filterChanged = true;
               }
+            }
+
+            final newInterestedIn = data['interestedIn']?.toString();
+            if (newInterestedIn != _myInterestedIn) {
+              _myInterestedIn = newInterestedIn;
+              if (!_hasCustomFilters && newInterestedIn != null && newInterestedIn.isNotEmpty) {
+                _filters.interestedIn = newInterestedIn;
+              }
+              filterChanged = true;
             }
           }
           setState(() {});
-          if (zonesChanged) {
+          if (filterChanged) {
             _listenToReservations();
           }
         }
@@ -545,6 +585,8 @@ class DiscoverPageState extends State<DiscoverPage> {
   }
 
 
+
+
   void _listenToReservations() {
     _reservationsSub?.cancel();
     _reservationsSub = FirebaseFirestore.instance.collection('reservations').snapshots().listen((snapshot) async {
@@ -558,10 +600,23 @@ class DiscoverPageState extends State<DiscoverPage> {
           final latLng = _parseLocation(data['location'], data['latitude'], data['longitude']);
           if (latLng == null) continue;
 
-          // FILTRO DE ZONAS ELEGIDAS POR EL USUARIO:
-          // Solo mostrar citas que estén dentro de las zonas que el usuario haya seleccionado.
-          // Si la cita está fuera de esa zona, NO debe aparecer.
-          if (!_isReservationInPreferredZones(latLng, data)) {
+          // FILTRO DE ZONAS (Considera filtros activos del usuario):
+          if (_filters.selectedZones.isNotEmpty) {
+            if (!ZoneData.isPointInAnyZone(latLng, _filters.selectedZones)) {
+              final docZone = (data['zone'] ?? data['zoneName'])?.toString().trim();
+              bool match = false;
+              if (docZone != null && docZone.isNotEmpty) {
+                final normDoc = ZoneData.normalizeZoneName(docZone);
+                for (final sz in _filters.selectedZones) {
+                  if (ZoneData.normalizeZoneName(sz) == normDoc) {
+                    match = true;
+                    break;
+                  }
+                }
+              }
+              if (!match) continue;
+            }
+          } else if (!_isReservationInPreferredZones(latLng, data)) {
             continue;
           }
 
@@ -573,9 +628,10 @@ class DiscoverPageState extends State<DiscoverPage> {
           String hostBio = '';
           int? hostAge;
           String hostInstagram = '';
+          String hostGender = (data['userGender'] ?? '').toString();
           
-          // Consultar los datos frescos del usuario en 'users' para garantizar que la foto y nombre
-          // reflejen cualquier cambio de perfil reciente.
+          // Consultar los datos frescos del usuario en 'users' para garantizar que la foto, nombre
+          // y género reflejen cualquier cambio de perfil reciente.
           if (userId != null && userId.isNotEmpty) {
             Map<String, dynamic>? userData;
             if (userDocsCache.containsKey(userId)) {
@@ -601,6 +657,30 @@ class DiscoverPageState extends State<DiscoverPage> {
               hostBio = userData['bio']?.toString() ?? '';
               hostAge = _calculateAge(userData['birthDate']);
               hostInstagram = userData['instagramHandle']?.toString() ?? '';
+              if (userData['gender'] != null && userData['gender'].toString().isNotEmpty) {
+                hostGender = userData['gender'].toString();
+              }
+            }
+          }
+
+          // FILTROS BÁSICOS Y AVANZADOS (PRO) PARA RESERVAS:
+          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+          final isMyOwnReservation = userId != null && userId == currentUserId;
+          final candidatePlan = data['planType'] ?? 'Comida';
+          final candidatePayment = data['paymentType'] ?? '';
+
+          if (!isMyOwnReservation) {
+            final matches = _filters.matchesReservation(
+              data,
+              latLng: latLng,
+              hostGender: hostGender,
+              hostAge: hostAge,
+              planType: candidatePlan,
+              paymentType: candidatePayment,
+              isPro: _isCurrentUserPro,
+            );
+            if (!matches) {
+              continue;
             }
           }
 
@@ -2025,6 +2105,63 @@ class DiscoverPageState extends State<DiscoverPage> {
   ''';
 
 
+  Widget _buildTopFilterButton() {
+    final hasActive = _filters.hasActiveFilters(isPro: _isCurrentUserPro);
+    final count = _filters.activeFilterCount(isPro: _isCurrentUserPro);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openFiltersModal,
+      child: Container(
+        height: 48,
+        width: 48,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
+              Icons.tune_rounded,
+              color: hasActive ? AppColors.primary : AppColors.textPrimary,
+              size: 21,
+            ),
+            if (hasActive)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3.5),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
@@ -2071,98 +2208,136 @@ class DiscoverPageState extends State<DiscoverPage> {
           // Vista 2: Descubrir Personas Estilo Tinder
           if (_showPeopleDiscovery)
             Positioned.fill(
-              top: topOffset + 66,
+              top: topOffset + 104,
               bottom: bottomPadding + 10,
               child: TinderSwipeView(
                 onSwitchToMap: () => setState(() => _showPeopleDiscovery = false),
+                filters: _filters,
+                isPro: _isCurrentUserPro,
+                onOpenFilters: _openFiltersModal,
               ),
             ),
 
-          // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
+          // Franja blanca superior con el logo Almona (no transparente sobre el mapa)
           Positioned(
-            top: topOffset + 8,
-            left: 20,
-            right: 20,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {}, // Interceptor de gestos para evitar toques en el mapa detrás
-              child: Container(
-                height: 48,
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(25),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(22),
-                        onTap: () => setState(() => _showPeopleDiscovery = false),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          decoration: BoxDecoration(
-                            color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          alignment: Alignment.center,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Reservas en Mapa',
-                                style: TextStyle(
-                                  color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(22),
-                        onTap: () => setState(() => _showPeopleDiscovery = true),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          decoration: BoxDecoration(
-                            color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          alignment: Alignment.center,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Descubrir Personas',
-                                style: TextStyle(
-                                  color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            top: 0,
+            left: 0,
+            right: 0,
+            height: topOffset + 40,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
+              padding: EdgeInsets.only(
+                top: topPadding > 0 ? topPadding : 6,
+                bottom: 4,
+                left: 20,
+              ),
+              alignment: Alignment.centerLeft,
+              child: const AlmonaTitle(height: 32),
+            ),
+          ),
+
+          // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas") + Botón de Filtros
+          Positioned(
+            top: topOffset + 48,
+            left: 16,
+            right: 16,
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {}, // Interceptor de gestos para evitar toques en el mapa detrás
+                    child: Container(
+                      height: 48,
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(25),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.12),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(22),
+                              onTap: () => setState(() => _showPeopleDiscovery = false),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                decoration: BoxDecoration(
+                                  color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Reservas en Mapa',
+                                      style: TextStyle(
+                                        color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(22),
+                              onTap: () => setState(() => _showPeopleDiscovery = true),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                decoration: BoxDecoration(
+                                  color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Descubrir Personas',
+                                      style: TextStyle(
+                                        color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _buildTopFilterButton(),
+              ],
             ),
           ),
 

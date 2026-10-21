@@ -1243,6 +1243,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         'userPhoto': userPhoto,
         'userBio': userData['bio'] ?? '',
         'userInstagram': userData['instagramHandle'] ?? '',
+        'userGender': userData['gender'] ?? '',
         'placeName': _placeController.text.trim(),
         'location': savedLocation,
         'planType': _selectedPlan,
