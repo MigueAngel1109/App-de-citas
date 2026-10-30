@@ -18,7 +18,7 @@ class PromptCategory {
 const List<PromptCategory> kProfilePromptCategories = [
   PromptCategory(
     emoji: '🎮',
-    title: 'Divertidos e interactivos (Rompehielos)',
+    title: 'Divertidos e interactivos',
     prompts: [
       'Dos verdades y una mentira...',
       'Mi dato curioso preferido es...',
@@ -270,7 +270,7 @@ class _ProfilePromptsSectionState extends State<ProfilePromptsSection> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'Prompts rompehielos',
+              'Rompehielos',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
             ),
             if (widget.isEditable)

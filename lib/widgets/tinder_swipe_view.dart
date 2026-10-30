@@ -914,7 +914,6 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
     // Redes y ubicación
     final instagramHandle = (candidate['instagramHandle'] ?? '').toString().replaceAll('@', '').trim();
-    final city = candidate['city']?.toString();
     final interests =
         (candidate['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
@@ -1002,18 +1001,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
           ),
           const SizedBox(height: 8),
 
-          // Ciudad visible
-          if (city != null && city.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildTagBadge('📍 $city', isHighlight: true),
-              ],
-            ),
-            const SizedBox(height: 18),
-          ] else
-            const SizedBox(height: 18),
+          const SizedBox(height: 12),
 
           // =========================================================
           // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):

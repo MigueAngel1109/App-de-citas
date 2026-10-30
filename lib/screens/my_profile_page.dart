@@ -88,7 +88,6 @@ class MyProfilePage extends StatelessWidget {
 
           // Redes
           final instagramHandle = data['instagramHandle'] ?? '';
-          final city = data['city']?.toString();
           final interests = (data['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
           // Estilo de vida
@@ -217,20 +216,12 @@ class MyProfilePage extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 14),
 
-                // Solo Ciudad visible debajo de la cabecera
-                if (city != null && city.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildTagBadge('📍 $city', isHighlight: true),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                ] else
-                  const SizedBox(height: 18),
+                // Apartado de Planes Pro Almona (fondo negro llamativo antes de Sobre mí)
+                _buildProPlansBanner(context, data),
+
+                const SizedBox(height: 20),
 
                 // =========================================================
                 // SECCIÓN "SOBRE MÍ" (ESTRUCTURA VERTICAL ESTRICTA):
@@ -463,53 +454,7 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
 
-                // Planes Almona Pro & Pro+ (Elegante y alineado con las tarjetas del perfil)
-                _buildInfoCard(
-                  InkWell(
-                    onTap: () => SubscriptionPlansPage.show(context),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFFF7A00), Color(0xFFFF007A)],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.workspace_premium, color: Colors.white, size: 22),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  data['plan'] == 'pro'
-                                      ? 'Mi suscripción: Almona Pro'
-                                      : (data['plan'] == 'pro_plus' ? 'Mi suscripción: Almona Pro+' : 'Planes Almona Pro & Pro+'),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  data['plan'] == 'pro' || data['plan'] == 'pro_plus'
-                                      ? 'Toca para ver beneficios o cambiar de plan'
-                                      : 'Conoce los planes y ventajas exclusivas',
-                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right, color: AppColors.textSecondary),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
 
                 // Botón Cerrar Sesión
                 SizedBox(
@@ -541,6 +486,119 @@ class MyProfilePage extends StatelessWidget {
       child: Text(
         title,
         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+      ),
+    );
+  }
+
+  Widget _buildProPlansBanner(BuildContext context, Map<String, dynamic> data) {
+    final plan = data['plan']?.toString() ?? 'free';
+    final isPro = plan == 'pro';
+    final isProPlus = plan == 'pro_plus';
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF141416),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFFF7A00).withValues(alpha: 0.45),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => SubscriptionPlansPage.show(context),
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF7A00), Color(0xFFFF007A)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF7A00).withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.workspace_premium, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              isPro
+                                  ? 'Mi suscripción: Almona Pro'
+                                  : (isProPlus ? 'Mi suscripción: Almona Pro+' : 'Planes Almona Pro & Pro+'),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFF7A00), Color(0xFFFF007A)],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'VIP',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        isPro || isProPlus
+                            ? 'Toca para ver beneficios o cambiar de plan'
+                            : 'Conoce los planes y ventajas exclusivas',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.72),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right, color: Colors.white70, size: 22),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

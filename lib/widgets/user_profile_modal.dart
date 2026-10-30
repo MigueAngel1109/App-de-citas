@@ -226,7 +226,6 @@ class _UserProfileModalState extends State<UserProfileModal> {
 
     // Redes y ubicación
     final instagramHandle = (data['instagramHandle'] ?? '').toString().replaceAll('@', '').trim();
-    final city = data['city']?.toString();
     final interests =
         (data['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
@@ -320,18 +319,7 @@ class _UserProfileModalState extends State<UserProfileModal> {
           ),
           const SizedBox(height: 8),
 
-          // Solo Ciudad visible debajo de la cabecera
-          if (city != null && city.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildTagBadge('📍 $city', isHighlight: true),
-              ],
-            ),
-            const SizedBox(height: 18),
-          ] else
-            const SizedBox(height: 18),
+          const SizedBox(height: 12),
 
           // =========================================================
           // SECCIÓN "SOBRE MÍ":
