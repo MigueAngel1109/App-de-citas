@@ -78,7 +78,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   // 3. ESTILO DE VIDA Y HÁBITOS (OPCIONALES)
   // -------------------------------------------------------------
   final Set<String> _pets = {};
-  final List<String> _petsOptions = ['Perro', 'Gato', 'Reptil', 'Varios', 'Sin mascotas', 'Alérgico/a'];
+  final List<String> _petsOptions = ['Perro', 'Gato', 'Ave', 'Varios', 'Sin mascotas', 'Alérgico/a'];
 
   String? _drinking;
   final List<String> _drinkingOptions = ['Nunca', 'Sobrio/a', 'En ocasiones especiales', 'Socialmente fines de semana', 'Casi todas las noches'];
@@ -264,6 +264,10 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               _pets.add(petsRaw.trim());
             }
           }
+          if (_pets.contains('Reptil')) {
+            _pets.remove('Reptil');
+            _pets.add('Ave');
+          }
           _drinking = lifestyle['drinking']?.toString();
           _smokingTobacco = lifestyle['smokingTobacco']?.toString();
           _smokingCannabis = lifestyle['smokingCannabis']?.toString();
@@ -430,22 +434,77 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   Future<void> _pickImage(int index) async {
-    final XFile? image = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-      maxWidth: 1200,
-      requestFullMetadata: false,
-    );
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      setState(() {
-        _photos[index] = image;
-        _photoBytes[index] = bytes;
-      });
+    List<XFile> pickedList = [];
+    try {
+      pickedList = await _picker.pickMultiImage(
+        imageQuality: 85,
+        maxWidth: 1200,
+        requestFullMetadata: false,
+      );
+    } catch (_) {
+      final single = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1200,
+        requestFullMetadata: false,
+      );
+      if (single != null) {
+        pickedList = [single];
+      }
     }
+
+    if (pickedList.isEmpty) return;
+
+    // Leer los bytes de las imágenes seleccionadas
+    final List<Uint8List> bytesList = [];
+    for (final img in pickedList) {
+      bytesList.add(await img.readAsBytes());
+    }
+
+    setState(() {
+      // 1. Asignar la primera foto al slot presionado
+      _photos[index] = pickedList[0];
+      _photoBytes[index] = bytesList[0];
+      _existingPhotoUrls[index] = null;
+
+      if (pickedList.length > 1) {
+        int listIdx = 1;
+
+        // 2. Llenar primero los siguientes slots que estén vacíos a partir de index
+        for (int i = index + 1; i < 6 && listIdx < pickedList.length; i++) {
+          final isEmpty = _photos[i] == null && (_existingPhotoUrls[i] == null || _existingPhotoUrls[i]!.isEmpty);
+          if (isEmpty) {
+            _photos[i] = pickedList[listIdx];
+            _photoBytes[i] = bytesList[listIdx];
+            _existingPhotoUrls[i] = null;
+            listIdx++;
+          }
+        }
+
+        // 3. Llenar otros slots vacíos antes de index si aún sobran fotos
+        for (int i = 0; i < index && listIdx < pickedList.length; i++) {
+          final isEmpty = _photos[i] == null && (_existingPhotoUrls[i] == null || _existingPhotoUrls[i]!.isEmpty);
+          if (isEmpty) {
+            _photos[i] = pickedList[listIdx];
+            _photoBytes[i] = bytesList[listIdx];
+            _existingPhotoUrls[i] = null;
+            listIdx++;
+          }
+        }
+
+        // 4. Si aún sobran fotos y no quedan vacíos, llenar consecutivamente a partir de index + 1
+        for (int i = index + 1; i < 6 && listIdx < pickedList.length; i++) {
+          _photos[i] = pickedList[listIdx];
+          _photoBytes[i] = bytesList[listIdx];
+          _existingPhotoUrls[i] = null;
+          listIdx++;
+        }
+      }
+    });
   }
 
   Future<void> _saveProfile() async {
+    FocusScope.of(context).unfocus();
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showError('Sesión no encontrada');
@@ -815,9 +874,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         margin: const EdgeInsets.only(top: 4, bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF2E7D32).withOpacity(0.08),
+          color: const Color(0xFF2E7D32).withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFF2E7D32).withOpacity(0.25)),
+          border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.25)),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -833,6 +892,47 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               style: TextStyle(
                 fontSize: 12,
                 color: Color(0xFF2E7D32),
+                fontWeight: FontWeight.bold,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoveLanguagesLinkBanner() {
+    return InkWell(
+      onTap: () async {
+        final uri = Uri.parse('https://acimutpsicologia.com/blog/2353/los-5-lenguajes-del-amor/');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE91E63).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE91E63).withValues(alpha: 0.25)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFFE91E63)),
+            SizedBox(width: 6),
+            Text(
+              '¿No sabes tu lenguaje? ',
+              style: TextStyle(fontSize: 12, color: Color(0xFFE91E63), fontWeight: FontWeight.w500),
+            ),
+            Text(
+              'Conoce los 5 lenguajes del amor aquí ↗',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFFE91E63),
                 fontWeight: FontWeight.bold,
                 decoration: TextDecoration.underline,
               ),
@@ -870,6 +970,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       return _buildContinuousEditView();
     }
 
+    final bool isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+
     // Modo 2: Wizard por Pasos (Onboarding inicial)
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
@@ -888,7 +990,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           }
         },
         child: Scaffold(
-          resizeToAvoidBottomInset: false,
+          resizeToAvoidBottomInset: true,
           backgroundColor: AppColors.background,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
@@ -912,61 +1014,69 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             ),
             centerTitle: true,
           ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LinearProgressIndicator(
-                    value: (_currentPage + 1) / _totalSteps,
-                    minHeight: 6,
-                    backgroundColor: AppColors.divider,
-                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  onPageChanged: (idx) => setState(() => _currentPage = idx),
-                  children: [
-                    _buildBasicInfoAndGenderStep(),
-                    _buildPreferencesAndIntentStep(),
-                    _buildPhotosAndLocationStep(),
-                    _buildLifestyleStep(),
-                    _buildPersonalInfoStep(),
-                    _buildBioAndDetailsStep(),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _nextPage,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 0,
+          body: SafeArea(
+            bottom: !isKeyboardVisible,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: (_currentPage + 1) / _totalSteps,
+                      minHeight: 6,
+                      backgroundColor: AppColors.divider,
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
                     ),
-                    child: _isSaving
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(
-                            _currentPage == _totalSteps - 1 ? 'Finalizar Perfil' : 'Continuar',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
                   ),
                 ),
-              )
-            ],
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    onPageChanged: (idx) => setState(() => _currentPage = idx),
+                    children: [
+                      _buildBasicInfoAndGenderStep(),
+                      _buildPreferencesAndIntentStep(),
+                      _buildPhotosAndLocationStep(),
+                      _buildLifestyleStep(),
+                      _buildPersonalInfoStep(),
+                      _buildBioAndDetailsStep(),
+                    ],
+                  ),
+                ),
+                AnimatedPadding(
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.fromLTRB(
+                    24.0,
+                    isKeyboardVisible ? 8.0 : 16.0,
+                    24.0,
+                    isKeyboardVisible ? 8.0 : 24.0,
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: isKeyboardVisible ? 50 : 56,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _nextPage,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                      child: _isSaving
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(
+                              _currentPage == _totalSteps - 1 ? 'Finalizar Perfil' : 'Continuar',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -1210,6 +1320,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                   });
                 },
               ),
+              const SizedBox(height: 8),
+              _buildLoveLanguagesLinkBanner(),
               const SizedBox(height: 20),
 
               // 4. Signo Zodiacal (Carrusel horizontal deslizable con tarjetas homogéneas)
@@ -1494,14 +1606,41 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             );
           },
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Mínimo 2',
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondary,
-            fontWeight: FontWeight.w500,
-          ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Text(
+              'Mínimo 2 fotos',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () {
+                int targetIndex = 0;
+                for (int i = 0; i < 6; i++) {
+                  if (_photos[i] == null && (_existingPhotoUrls[i] == null || _existingPhotoUrls[i]!.isEmpty)) {
+                    targetIndex = i;
+                    break;
+                  }
+                }
+                _pickImage(targetIndex);
+              },
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18, color: AppColors.primary),
+              label: const Text(
+                'Seleccionar varias',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.primary),
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1930,7 +2069,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         children: [
           const Text('Sube tus fotos', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 8),
-          const Text('Sube al menos 2 fotos para que otros te reconozcan en tus citas.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          const Text('Sube al menos 2 fotos para que otros te reconozcan. Puedes seleccionar varias de una vez.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
           const SizedBox(height: 20),
           _buildPhotosGrid(),
         ],
@@ -2054,6 +2193,8 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               });
             },
           ),
+          const SizedBox(height: 8),
+          _buildLoveLanguagesLinkBanner(),
           const SizedBox(height: 16),
           _buildHorizontalChipCarousel(
             title: '👶 Planes de Familia / Hijos',
@@ -2097,7 +2238,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
   Widget _buildBioAndDetailsStep() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2111,6 +2252,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
             controller: _bioController,
             maxLines: 2,
             maxLength: 500,
+            scrollPadding: const EdgeInsets.only(bottom: 70),
             style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Cuéntanos qué te apasiona, tus planes favoritos...',
@@ -2177,7 +2319,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.12),
+                  color: Colors.grey.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Row(
@@ -2195,6 +2337,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         TextField(
           controller: controller,
           readOnly: readOnly,
+          scrollPadding: const EdgeInsets.only(bottom: 70),
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => FocusScope.of(context).unfocus(),
           style: TextStyle(

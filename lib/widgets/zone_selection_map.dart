@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../utils/app_colors.dart';
@@ -40,7 +42,7 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
   final Set<String> _selectedZones = {};
   GoogleMapController? _mapController;
   Map<String, LatLng> _centroids = {};
-  bool _bogotaExpanded = true;
+  bool _bogotaExpanded = false;
 
   // Zonas operativas de Bogotá estructuradas y fusionadas (8 macrozonas operativas)
   static const List<ZoneItem> _bogotaZones = [
@@ -370,6 +372,12 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
                       scrollGesturesEnabled: true, // Moverse con un dedo
                       rotateGesturesEnabled: false,
                       tiltGesturesEnabled: false,
+                      webGestureHandling: WebGestureHandling.greedy,
+                      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                        Factory<OneSequenceGestureRecognizer>(
+                          () => EagerGestureRecognizer(),
+                        ),
+                      },
                       mapToolbarEnabled: false,
                       compassEnabled: false,
                       indoorViewEnabled: false,
@@ -453,7 +461,11 @@ class _ZoneSelectionMapState extends State<ZoneSelectionMap> {
                     children: [
                       // Encabezado maestro de Bogotá D.C.
                       InkWell(
-                        onTap: _toggleAllBogota,
+                        onTap: () {
+                          setState(() {
+                            _bogotaExpanded = !_bogotaExpanded;
+                          });
+                        },
                         borderRadius: BorderRadius.vertical(
                           top: const Radius.circular(18),
                           bottom: _bogotaExpanded ? Radius.zero : const Radius.circular(18),

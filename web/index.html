@@ -37,6 +37,28 @@
   <link href="https://fonts.googleapis.com/css2?family=Style+Script&family=Ms+Madi&family=Allura&display=swap" rel="stylesheet">
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCJOqQ6Xedz-lx-KLJJpvOYkwORkNDTGBg&v=weekly&libraries=places"></script>
   <script>
+    // Permitir mover el mapa de Google con 1 solo dedo en pantallas táctiles y móviles (iOS / Android)
+    (function() {
+      function forceGreedyGestureHandling() {
+        if (window.google && window.google.maps && window.google.maps.Map) {
+          var OriginalGoogleMap = window.google.maps.Map;
+          window.google.maps.Map = function(container, options) {
+            options = options || {};
+            // 'greedy' asegura arrastre libre con 1 solo dedo sin pedir 2 dedos
+            options.gestureHandling = 'greedy';
+            return new OriginalGoogleMap(container, options);
+          };
+          window.google.maps.Map.prototype = OriginalGoogleMap.prototype;
+          return true;
+        }
+        return false;
+      }
+      if (!forceGreedyGestureHandling()) {
+        window.addEventListener('load', forceGreedyGestureHandling);
+      }
+    })();
+  </script>
+  <script>
     window.getGooglePlacePhoto = async function(query, callback) {
       try {
         if (!window.google || !window.google.maps) {

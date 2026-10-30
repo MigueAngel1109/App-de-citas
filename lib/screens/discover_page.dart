@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -2109,54 +2111,63 @@ class DiscoverPageState extends State<DiscoverPage> {
     final hasActive = _filters.hasActiveFilters(isPro: _isCurrentUserPro);
     final count = _filters.activeFilterCount(isPro: _isCurrentUserPro);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _openFiltersModal,
-      child: Container(
-        height: 48,
-        width: 48,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _openFiltersModal,
+        child: Container(
+          height: 38,
+          width: 38,
+          decoration: BoxDecoration(
+            color: hasActive ? AppColors.primary.withValues(alpha: 0.1) : Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: hasActive ? AppColors.primary : const Color(0xFFE5E7EB),
+              width: hasActive ? 1.5 : 1,
             ),
-          ],
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            Icon(
-              Icons.tune_rounded,
-              color: hasActive ? AppColors.primary : AppColors.textPrimary,
-              size: 21,
-            ),
-            if (hasActive)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Container(
-                  padding: const EdgeInsets.all(3.5),
-                  decoration: const BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    '$count',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      height: 1,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                color: hasActive ? AppColors.primary : AppColors.textPrimary,
+                size: 20,
+              ),
+              if (hasActive)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.bold,
+                        height: 1,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2192,6 +2203,12 @@ class DiscoverPageState extends State<DiscoverPage> {
                 zoomGesturesEnabled: true,
                 rotateGesturesEnabled: false,
                 tiltGesturesEnabled: false,
+                webGestureHandling: WebGestureHandling.greedy,
+                gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                  Factory<OneSequenceGestureRecognizer>(
+                    () => EagerGestureRecognizer(),
+                  ),
+                },
                 style: _cleanMapStyle,
                 markers: _combinedMarkers,
                 circles: const {},
@@ -2218,12 +2235,12 @@ class DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
 
-          // Franja blanca superior con el logo Almona (no transparente sobre el mapa)
+          // Franja blanca superior con el logo Almona y el botón de filtros en la esquina superior derecha
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            height: topOffset + 40,
+            height: topOffset + 44,
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -2239,105 +2256,104 @@ class DiscoverPageState extends State<DiscoverPage> {
                 top: topPadding > 0 ? topPadding : 6,
                 bottom: 4,
                 left: 20,
+                right: 16,
               ),
-              alignment: Alignment.centerLeft,
-              child: const AlmonaTitle(height: 32),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const AlmonaTitle(height: 32),
+                  _buildTopFilterButton(),
+                ],
+              ),
             ),
           ),
 
-          // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas") + Botón de Filtros
+          // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
           Positioned(
-            top: topOffset + 48,
+            top: topOffset + 50,
             left: 16,
             right: 16,
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {}, // Interceptor de gestos para evitar toques en el mapa detrás
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(25),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.12),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {}, // Interceptor de gestos para evitar toques en el mapa detrás
+              child: Container(
+                height: 48,
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(22),
+                        onTap: () => setState(() => _showPeopleDiscovery = false),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          decoration: BoxDecoration(
+                            color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
+                            borderRadius: BorderRadius.circular(22),
                           ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(22),
-                              onTap: () => setState(() => _showPeopleDiscovery = false),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                decoration: BoxDecoration(
-                                  color: !_showPeopleDiscovery ? AppColors.primary : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(22),
-                                ),
-                                alignment: Alignment.center,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Reservas en Mapa',
-                                      style: TextStyle(
-                                        color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.map_outlined, size: 16, color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Reservas en Mapa',
+                                style: TextStyle(
+                                  color: !_showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(22),
-                              onTap: () => setState(() => _showPeopleDiscovery = true),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                decoration: BoxDecoration(
-                                  color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(22),
-                                ),
-                                alignment: Alignment.center,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Descubrir Personas',
-                                      style: TextStyle(
-                                        color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(22),
+                        onTap: () => setState(() => _showPeopleDiscovery = true),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          decoration: BoxDecoration(
+                            color: _showPeopleDiscovery ? Colors.pinkAccent : Colors.transparent,
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.local_fire_department, size: 16, color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Descubrir Personas',
+                                style: TextStyle(
+                                  color: _showPeopleDiscovery ? Colors.white : AppColors.textSecondary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                _buildTopFilterButton(),
-              ],
+              ),
             ),
           ),
 

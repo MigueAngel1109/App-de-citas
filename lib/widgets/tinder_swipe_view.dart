@@ -291,348 +291,393 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
     if (!mounted) return;
 
-    showModalBottomSheet(
+    final messageCtrl = TextEditingController();
+    String? selectedReservationId = myReservations.isNotEmpty ? myReservations.first.id : null;
+    bool isSubmitting = false;
+
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (modalCtx) {
-        String? selectedReservationId;
-        if (myReservations.isNotEmpty) {
-          selectedReservationId = myReservations.first.id;
-        }
-        final messageCtrl = TextEditingController();
-        bool isSubmitting = false;
-
         return StatefulBuilder(
           builder: (modalContentCtx, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                top: 20,
-                left: 20,
-                right: 20,
-                bottom: MediaQuery.of(modalContentCtx).viewInsets.bottom + 24,
-              ),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(30),
-                  topRight: Radius.circular(30),
-                ),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.35),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+            final bottomInset = MediaQuery.of(modalContentCtx).viewInsets.bottom;
+            final maxSheetHeight = MediaQuery.of(modalContentCtx).size.height * 0.90;
 
-                    // Encabezado
-                    Row(
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => FocusScope.of(modalContentCtx).unfocus(),
+              child: Padding(
+                padding: EdgeInsets.only(bottom: bottomInset),
+                child: Container(
+                  constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(30),
+                      topRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: AppColors.inputBackground,
-                          backgroundImage: (candidatePhoto.isNotEmpty &&
-                                  (candidatePhoto.startsWith('http://') || candidatePhoto.startsWith('https://')))
-                              ? NetworkImage(candidatePhoto)
-                              : null,
-                          child: candidatePhoto.isEmpty
-                              ? const Icon(Icons.person, color: AppColors.textLight)
-                              : null,
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Container(
+                            width: 44,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 12),
+
+                        // Encabezado
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
                             children: [
-                              Text(
-                                'Invitar a $candidateName',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundColor: AppColors.inputBackground,
+                                backgroundImage: (candidatePhoto.isNotEmpty &&
+                                        (candidatePhoto.startsWith('http://') || candidatePhoto.startsWith('https://')))
+                                    ? NetworkImage(candidatePhoto)
+                                    : null,
+                                child: candidatePhoto.isEmpty
+                                    ? const Icon(Icons.person, color: AppColors.textLight)
+                                    : null,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Invitar a $candidateName',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    const Text(
+                                      'Selecciona una de tus reservas publicadas 💕',
+                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Selecciona una de tus reservas publicadas 💕',
-                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.pop(modalCtx),
                               ),
                             ],
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(modalCtx),
-                        ),
-                      ],
-                    ),
 
-                    const Divider(color: AppColors.divider, height: 24),
-
-                    if (myReservations.isEmpty) ...[
-                      // Si no tiene reservas activas, sugerir publicar o dar Like directo
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF9FAFB),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: AppColors.divider),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20),
+                          child: Divider(color: AppColors.divider, height: 16),
                         ),
-                        child: Column(
-                          children: [
-                            const Icon(Icons.restaurant_menu_rounded, size: 40, color: AppColors.primary),
-                            const SizedBox(height: 10),
-                            const Text(
-                              'Aún no tienes reservas activas publicadas',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Publica una reserva para invitar a $candidateName a salir, o dale un Like directo para conectar.',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
-                            ),
-                            const SizedBox(height: 14),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.pop(modalCtx);
-                                  Navigator.pushNamed(context, '/publish');
-                                },
-                                icon: const Icon(Icons.add, color: Colors.white, size: 18),
-                                label: const Text('Publicar una Reserva Ahora',
-                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.primary,
-                                  padding: const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                ),
+
+                        if (myReservations.isEmpty)
+                          Flexible(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Si no tiene reservas activas, sugerir publicar o dar Like directo
+                                  Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: AppColors.divider),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        const Icon(Icons.restaurant_menu_rounded, size: 40, color: AppColors.primary),
+                                        const SizedBox(height: 10),
+                                        const Text(
+                                          'Aún no tienes reservas activas publicadas',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Publica una reserva para invitar a $candidateName a salir, o dale un Like directo para conectar.',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: ElevatedButton.icon(
+                                            onPressed: () {
+                                              Navigator.pop(modalCtx);
+                                              Navigator.pushNamed(context, '/publish');
+                                            },
+                                            icon: const Icon(Icons.add, color: Colors.white, size: 18),
+                                            label: const Text('Publicar una Reserva Ahora',
+                                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.primary,
+                                              padding: const EdgeInsets.symmetric(vertical: 13),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            onPressed: () async {
+                                              Navigator.pop(modalCtx);
+                                              await _handleLike(candidate, notifyMatch: true);
+                                              setState(() {
+                                                _currentIndex++;
+                                              });
+                                              if (_scrollController.hasClients) {
+                                                _scrollController.jumpTo(0);
+                                              }
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('¡Le diste Me Gusta a $candidateName! ❤️'),
+                                                    backgroundColor: Colors.pinkAccent,
+                                                    behavior: SnackBarBehavior.floating,
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                            icon: const Icon(Icons.favorite, color: Colors.pinkAccent, size: 18),
+                                            label: const Text('Dar Me Gusta directo ❤️',
+                                                style: TextStyle(color: Colors.pinkAccent, fontWeight: FontWeight.bold)),
+                                            style: OutlinedButton.styleFrom(
+                                              side: const BorderSide(color: Colors.pinkAccent),
+                                              padding: const EdgeInsets.symmetric(vertical: 13),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Center(
+                                    child: TextButton(
+                                      onPressed: () => Navigator.pop(modalCtx),
+                                      child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () async {
-                                  Navigator.pop(modalCtx);
-                                  await _handleLike(candidate, notifyMatch: true);
-                                  setState(() {
-                                    _currentIndex++;
-                                  });
-                                  if (_scrollController.hasClients) {
-                                    _scrollController.jumpTo(0);
-                                  }
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('¡Le diste Me Gusta a $candidateName! ❤️'),
-                                        backgroundColor: Colors.pinkAccent,
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.favorite, color: Colors.pinkAccent, size: 18),
-                                label: const Text('Dar Me Gusta directo ❤️',
-                                    style: TextStyle(color: Colors.pinkAccent, fontWeight: FontWeight.bold)),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.pinkAccent),
-                                  padding: const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ] else ...[
-                      const Text(
-                        'Tus reservas disponibles:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 10),
+                          )
+                        else ...[
+                          // Contenido scrollable de reservas y campo de mensaje
+                          Flexible(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Tus reservas disponibles:',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                  ),
+                                  const SizedBox(height: 10),
 
-                      // Lista de reservas activas del anfitrión
-                      ...myReservations.map((resDoc) {
-                        final resData = resDoc.data() as Map<String, dynamic>;
-                        final isSelected = selectedReservationId == resDoc.id;
-                        final placeName = resData['placeName'] ?? 'Restaurante';
-                        final planType = resData['planType'] ?? 'Plan';
-                        final dt = resData['dateTime'] as Timestamp?;
-                        final formattedDate = dt != null
-                            ? '${dt.toDate().day}/${dt.toDate().month} • ${dt.toDate().hour.toString().padLeft(2, '0')}:${dt.toDate().minute.toString().padLeft(2, '0')}'
-                            : 'Fecha acordada';
+                                  // Lista de reservas activas del anfitrión
+                                  ...myReservations.map((resDoc) {
+                                    final resData = resDoc.data() as Map<String, dynamic>;
+                                    final isSelected = selectedReservationId == resDoc.id;
+                                    final placeName = resData['placeName'] ?? 'Restaurante';
+                                    final planType = resData['planType'] ?? 'Plan';
+                                    final dt = resData['dateTime'] as Timestamp?;
+                                    final formattedDate = dt != null
+                                        ? '${dt.toDate().day}/${dt.toDate().month} • ${dt.toDate().hour.toString().padLeft(2, '0')}:${dt.toDate().minute.toString().padLeft(2, '0')}'
+                                        : 'Fecha acordada';
 
-                        return GestureDetector(
-                          onTap: () => setModalState(() => selectedReservationId = resDoc.id),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected ? Colors.pinkAccent.withOpacity(0.08) : const Color(0xFFF9FAFB),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: isSelected ? Colors.pinkAccent : AppColors.divider,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                                  color: isSelected ? Colors.pinkAccent : AppColors.textLight,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        placeName,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: isSelected ? Colors.pinkAccent : AppColors.textPrimary,
+                                    return GestureDetector(
+                                      onTap: () => setModalState(() => selectedReservationId = resDoc.id),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 200),
+                                        margin: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: isSelected ? Colors.pinkAccent.withValues(alpha: 0.08) : const Color(0xFFF9FAFB),
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: isSelected ? Colors.pinkAccent : AppColors.divider,
+                                            width: isSelected ? 2 : 1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                                              color: isSelected ? Colors.pinkAccent : AppColors.textLight,
+                                              size: 20,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    placeName,
+                                                    style: TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 14,
+                                                      color: isSelected ? Colors.pinkAccent : AppColors.textPrimary,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    '$planType • $formattedDate',
+                                                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '$planType • $formattedDate',
-                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                      ),
-                                    ],
+                                    );
+                                  }),
+
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Mensaje opcional para acompañar la invitación:',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
                                   ),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: messageCtrl,
+                                    maxLines: 2,
+                                    scrollPadding: const EdgeInsets.only(bottom: 40),
+                                    decoration: InputDecoration(
+                                      hintText: 'Ej: ¡Hola! Me encantó tu vibra, tengo esta reserva y me gustaría que vinieras 🍸',
+                                      hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 12),
+                                      filled: true,
+                                      fillColor: const Color(0xFFF9FAFB),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Botón Enviar Invitación fijado abajo (sube junto con el teclado)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: (isSubmitting || selectedReservationId == null)
+                                        ? null
+                                        : () async {
+                                            FocusScope.of(modalContentCtx).unfocus();
+                                            setModalState(() => isSubmitting = true);
+                                            try {
+                                              final chosenRes = myReservations.firstWhere((r) => r.id == selectedReservationId);
+                                              final chosenData = chosenRes.data() as Map<String, dynamic>;
+
+                                              final invRef = FirebaseFirestore.instance.collection('invitations').doc();
+                                              await invRef.set({
+                                                'id': invRef.id,
+                                                'reservationId': chosenRes.id,
+                                                'senderId': user.uid,
+                                                'senderName': _myName,
+                                                'senderPhoto': _myPhoto,
+                                                'receiverId': candidate['id'],
+                                                'receiverName': candidateName,
+                                                'receiverPhoto': candidatePhoto,
+                                                'placeName': chosenData['placeName'] ?? 'Restaurante',
+                                                'planType': chosenData['planType'] ?? 'Cita',
+                                                'paymentType': chosenData['paymentType'] ?? 'Yo invito',
+                                                'dateTime': chosenData['dateTime'] ?? FieldValue.serverTimestamp(),
+                                                'message': messageCtrl.text.trim(),
+                                                'status': 'pending',
+                                                'createdAt': FieldValue.serverTimestamp(),
+                                              });
+
+                                              // Guardar Like emitido
+                                              await _handleLike(candidate, notifyMatch: false);
+
+                                              if (!mounted) return;
+                                              if (modalCtx.mounted) Navigator.pop(modalCtx);
+
+                                              setState(() {
+                                                _currentIndex++;
+                                              });
+                                              if (_scrollController.hasClients) {
+                                                _scrollController.jumpTo(0);
+                                              }
+
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('¡Invitación a tu reserva enviada a $candidateName! 💌'),
+                                                  backgroundColor: Colors.pinkAccent,
+                                                  behavior: SnackBarBehavior.floating,
+                                                ),
+                                              );
+                                            } catch (e) {
+                                              setModalState(() => isSubmitting = false);
+                                              if (!mounted) return;
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text('Error al enviar invitación: $e'), backgroundColor: Colors.red),
+                                              );
+                                            }
+                                          },
+                                    icon: isSubmitting
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                          )
+                                        : const Icon(Icons.favorite, color: Colors.white, size: 18),
+                                    label: Text(
+                                      isSubmitting ? 'Enviando invitación...' : 'Enviar Invitación a Mi Reserva 💌',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.pinkAccent,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(modalCtx),
+                                  child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
                                 ),
                               ],
                             ),
                           ),
-                        );
-                      }),
-
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Mensaje opcional para acompañar la invitación:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: messageCtrl,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          hintText: 'Ej: ¡Hola! Me encantó tu vibra, tengo esta reserva y me gustaría que vinieras 🍸',
-                          hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 12),
-                          filled: true,
-                          fillColor: const Color(0xFFF9FAFB),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
-                          enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.inputBorder)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-
-                      // Botón Enviar Invitación
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: (isSubmitting || selectedReservationId == null)
-                              ? null
-                              : () async {
-                                  setModalState(() => isSubmitting = true);
-                                  try {
-                                    final chosenRes = myReservations.firstWhere((r) => r.id == selectedReservationId);
-                                    final chosenData = chosenRes.data() as Map<String, dynamic>;
-
-                                    final invRef = FirebaseFirestore.instance.collection('invitations').doc();
-                                    await invRef.set({
-                                      'id': invRef.id,
-                                      'reservationId': chosenRes.id,
-                                      'senderId': user.uid,
-                                      'senderName': _myName,
-                                      'senderPhoto': _myPhoto,
-                                      'receiverId': candidate['id'],
-                                      'receiverName': candidateName,
-                                      'receiverPhoto': candidatePhoto,
-                                      'placeName': chosenData['placeName'] ?? 'Restaurante',
-                                      'planType': chosenData['planType'] ?? 'Cita',
-                                      'paymentType': chosenData['paymentType'] ?? 'Yo invito',
-                                      'dateTime': chosenData['dateTime'] ?? FieldValue.serverTimestamp(),
-                                      'message': messageCtrl.text.trim(),
-                                      'status': 'pending',
-                                      'createdAt': FieldValue.serverTimestamp(),
-                                    });
-
-                                    // Guardar Like emitido
-                                    await _handleLike(candidate, notifyMatch: false);
-
-                                    if (!mounted) return;
-                                    if (modalCtx.mounted) Navigator.pop(modalCtx);
-
-                                    setState(() {
-                                      _currentIndex++;
-                                    });
-                                    if (_scrollController.hasClients) {
-                                      _scrollController.jumpTo(0);
-                                    }
-
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('¡Invitación a tu reserva enviada a $candidateName! 💌'),
-                                        backgroundColor: Colors.pinkAccent,
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    setModalState(() => isSubmitting = false);
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error al enviar invitación: $e'), backgroundColor: Colors.red),
-                                    );
-                                  }
-                                },
-                          icon: isSubmitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                )
-                              : const Icon(Icons.favorite, color: Colors.white, size: 18),
-                          label: Text(
-                            isSubmitting ? 'Enviando invitación...' : 'Enviar Invitación a Mi Reserva 💌',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.pinkAccent,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(modalCtx),
-                        child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary)),
-                      ),
+                        ],
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -640,6 +685,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
         );
       },
     );
+    messageCtrl.dispose();
   }
 
   void _showMatchDialog({required String otherName, required String otherPhoto}) {
