@@ -136,7 +136,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   ];
 
   String? _communication;
-  final List<String> _communicationOptions = ['Gran texter 💬', 'Llamadas telefónicas 📞', 'Notas de voz 🎙️', 'Malo respondiendo ⏳', 'Cara a cara ☕'];
+  final List<String> _communicationOptions = ['Gran texter 💬', 'En persona ☕', 'Llamadas telefónicas 📞', 'Notas de voz 🎙️', 'Malo respondiendo ⏳'];
 
   final Set<String> _languages = {'Español'};
   final List<String> _languagesOptions = ['Español', 'Inglés', 'Francés', 'Portugués', 'Italiano', 'Alemán', 'Mandarín', 'Japonés'];
@@ -306,6 +306,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
           _familyPlans = personal['familyPlans']?.toString();
           _communication = personal['communication']?.toString();
+          if (_communication == 'Cara a cara ☕') {
+            _communication = 'En persona ☕';
+          }
           if (personal['languages'] != null && personal['languages'] is List) {
             _languages.clear();
             final langList = personal['languages'] as List<dynamic>;
