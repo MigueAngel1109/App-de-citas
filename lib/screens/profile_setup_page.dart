@@ -878,22 +878,32 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.25)),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF2E7D32)),
-            SizedBox(width: 6),
-            Text(
-              '¿No sabes tu tipo? ',
-              style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32), fontWeight: FontWeight.w500),
-            ),
-            Text(
-              'Conoce más y haz el test aquí ↗',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF2E7D32),
-                fontWeight: FontWeight.bold,
-                decoration: TextDecoration.underline,
+            const Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF2E7D32)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text.rich(
+                const TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '¿No sabes tu tipo? ',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32), fontWeight: FontWeight.w500),
+                    ),
+                    TextSpan(
+                      text: 'Conoce más y haz el test aquí ↗',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF2E7D32),
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -919,22 +929,32 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: const Color(0xFFE91E63).withValues(alpha: 0.25)),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFFE91E63)),
-            SizedBox(width: 6),
-            Text(
-              '¿No sabes tu lenguaje? ',
-              style: TextStyle(fontSize: 12, color: Color(0xFFE91E63), fontWeight: FontWeight.w500),
-            ),
-            Text(
-              'Conoce los 5 lenguajes del amor aquí ↗',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFFE91E63),
-                fontWeight: FontWeight.bold,
-                decoration: TextDecoration.underline,
+            const Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFFE91E63)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text.rich(
+                const TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '¿No sabes tu lenguaje? ',
+                      style: TextStyle(fontSize: 12, color: Color(0xFFE91E63), fontWeight: FontWeight.w500),
+                    ),
+                    TextSpan(
+                      text: 'Conócelos aquí ↗',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFE91E63),
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
