@@ -56,6 +56,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
   String? _realPlacePhoto;
   bool _hasDetectedData = false;
   bool _showManualEntry = false;
+  String? _detectedAddress;
 
   bool get _showDetails => _hasDetectedData || _showManualEntry || _placeController.text.trim().isNotEmpty;
 
@@ -329,9 +330,144 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
     cand = cand.replaceAll(RegExp(r'\s*-\s*OpenTable.*$', caseSensitive: false), '');
     cand = cand.replaceAll(RegExp(r'\s*-\s*Bogot[aá].*$', caseSensitive: false), '');
     cand = cand.replaceAll(RegExp(r'\s*\|\s*Bogot[aá].*$', caseSensitive: false), '');
-    cand = cand.replaceAll(RegExp(r'\s+Restaurante$', caseSensitive: false), '');
-    cand = cand.replaceAll(RegExp(r'\s+Restaurant$', caseSensitive: false), '');
     return cand.trim();
+  }
+
+  bool _isGenericReservationPhrase(String s) {
+    final low = s.trim().toLowerCase();
+    if (low.isEmpty) return true;
+    final genericPrefixes = [
+      'únete',
+      'unete',
+      'invitación',
+      'invitacion',
+      'comparte',
+      'reserva de',
+      'reserva para',
+      'reserva confirmada',
+      'confirmación de',
+      'confirmacion de',
+      'detalle de',
+      'detalles de',
+      'booking confirmation',
+      'join my reservation',
+      'join the reservation',
+      'copiar',
+      'mi reserva',
+      'tu reserva',
+    ];
+    for (final p in genericPrefixes) {
+      if (low.startsWith(p) || low == p) {
+        return true;
+      }
+    }
+    if (low.contains('unete a la reserva') ||
+        low.contains('únete a la reserva') ||
+        low.contains('unete a mi reserva') ||
+        low.contains('únete a mi reserva') ||
+        low.contains('comparte tu reserva') ||
+        low.contains('comparte la reserva') ||
+        low.contains('copiar invitación') ||
+        low.contains('copiar invitacion')) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _isValidRestaurantName(String? name) {
+    if (name == null) return false;
+    final cand = _cleanRestaurantTitle(name);
+    if (cand.isEmpty || cand.length < 2 || cand.length > 70) return false;
+    if (_isGenericReservationPhrase(cand)) return false;
+    final low = cand.toLowerCase();
+    if (low == 'mesa 24/7' || low == 'apparta' || low == 'opentable' || low == 'bogota' || low == 'bogotá') {
+      return false;
+    }
+    // Evitar que sea un código hash o solo dígitos
+    if (RegExp(r'^[0-9a-fA-F]{3,}$').hasMatch(cand) || RegExp(r'^\d+$').hasMatch(cand)) {
+      return false;
+    }
+    return true;
+  }
+
+  GeoPoint? _extractCoordinates(String content) {
+    if (content.isEmpty) return null;
+    final decoded = content.replaceAll('%7C', '|').replaceAll('%2C', ',').replaceAll('%2c', ',');
+
+    // 1. Google Static Map / iframe / API (markers o center)
+    final mapRegex = RegExp(
+      r'(?:center|markers|destination|loc|q)=[^&"\x27\s>]*?([0-9]{1,2}\.[0-9]{3,})\s*,\s*(-?[0-9]{1,3}\.[0-9]{3,})',
+      caseSensitive: false,
+    );
+    final mapMatch = mapRegex.firstMatch(decoded);
+    if (mapMatch != null) {
+      final lat = double.tryParse(mapMatch.group(1)!);
+      final lng = double.tryParse(mapMatch.group(2)!);
+      if (lat != null && lng != null && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && (lat != 0.0 || lng != 0.0)) {
+        return GeoPoint(lat, lng);
+      }
+    }
+
+    // 2. JSON latitude / longitude o lat / lng
+    final latMatch = RegExp(r'"(?:latitude|lat)"\s*:\s*([0-9.\-]+)', caseSensitive: false).firstMatch(content);
+    final lngMatch = RegExp(r'"(?:longitude|lng|lon)"\s*:\s*([0-9.\-]+)', caseSensitive: false).firstMatch(content);
+    if (latMatch != null && lngMatch != null) {
+      final lat = double.tryParse(latMatch.group(1)!);
+      final lng = double.tryParse(lngMatch.group(1)!);
+      if (lat != null && lng != null && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && (lat != 0.0 || lng != 0.0)) {
+        return GeoPoint(lat, lng);
+      }
+    }
+
+    return null;
+  }
+
+  String? _extractAddress(String content) {
+    if (content.isEmpty) return null;
+
+    // 1. JSON estructurado
+    final jsonMatch = RegExp(
+      r'"(?:address|streetAddress|direccion|local_address|address_text)"\s*:\s*"([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(content);
+    if (jsonMatch != null) {
+      final cand = jsonMatch.group(1)!.trim();
+      if (cand.length >= 6 && cand.length <= 120 && !_isGenericReservationPhrase(cand)) {
+        return cand;
+      }
+    }
+
+    // 2. Elementos HTML con clase de dirección
+    final tagMatch = RegExp(
+      r'<(?:div|p|span|address)[^>]+class=["\x27][^"\x27]*(?:address|direccion|ubicacion|location)[^"\x27]*["\x27][^>]*>\s*([^<]+?)\s*</',
+      caseSensitive: false,
+    ).firstMatch(content);
+    if (tagMatch != null) {
+      final cand = tagMatch.group(1)!.trim();
+      if (cand.length >= 6 && cand.length <= 120 && !_isGenericReservationPhrase(cand)) {
+        return cand;
+      }
+    }
+
+    // 3. Regex para dirección colombiana / latinoamericana
+    final cleanText = content
+        .replaceAll(RegExp(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'<[^>]+>'), ' ');
+
+    final addrRegex = RegExp(
+      r'(?:(?:Bogot[aá]|Medell[ií]n|Cali|Barranquilla|Cartagena),?\s*)?(?:Cra\.?|Carrera|Calle|Cl\.?|Cll\.?|Diagonal|Diag\.?|Transversal|Tv\.?|Av\.?|Avenida)\s+[0-9a-zA-Z\s#\-\.º°]+(?:,\s*(?:Bogot[aá]|Medell[ií]n|Cali|Barranquilla|Cartagena|Colombia))?',
+      caseSensitive: false,
+    );
+    final m = addrRegex.firstMatch(cleanText);
+    if (m != null) {
+      final cand = m.group(0)!.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (cand.length >= 8 && cand.length <= 100 && !_isGenericReservationPhrase(cand)) {
+        return cand;
+      }
+    }
+
+    return null;
   }
 
   bool _isValidUrl(String text) {
@@ -354,6 +490,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           _linkParseMessage = null;
           _isParsingLink = false;
           _hasDetectedData = false;
+          _detectedAddress = null;
         });
       }
       return;
@@ -435,6 +572,8 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       final Uri uri = parsedUri;
 
       String? detectedPlace;
+      String? detectedAddress;
+      GeoPoint? detectedLocation;
       DateTime? detectedDate;
       TimeOfDay? detectedTime;
       String? platformDetected;
@@ -470,12 +609,15 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         platformDetected = 'Mesa 24/7';
         for (var i = segments.length - 1; i >= 0; i--) {
           final seg = segments[i].toLowerCase();
-          // Ignorar IDs/hashes hexadecimales (ej: 300322ccf2d2c767785aaf14f3f6ad08), números y slugs genéricos
-          final isHash = RegExp(r'^[0-9a-fA-F]{16,}$').hasMatch(seg) || RegExp(r'^\d+$').hasMatch(seg);
-          final isGeneric = seg.contains('comparte') || seg.contains('reserva') || seg.contains('invitacion');
+          // Ignorar IDs/hashes hexadecimales (ej: 3db9, 300322ccf2d2c767785aaf14f3f6ad08), números y slugs genéricos
+          final isHash = RegExp(r'^[0-9a-fA-F]{4,}$').hasMatch(seg) || RegExp(r'^\d+$').hasMatch(seg);
+          final isGeneric = seg.contains('comparte') || seg.contains('reserva') || seg.contains('invitacion') || seg.contains('unete');
           if (!stopWords.contains(seg) && seg.isNotEmpty && !isHash && !isGeneric) {
-            detectedPlace = _cleanRestaurantTitle(_cleanSlug(segments[i]));
-            break;
+            final cand = _cleanRestaurantTitle(_cleanSlug(segments[i]));
+            if (_isValidRestaurantName(cand)) {
+              detectedPlace = cand;
+              break;
+            }
           }
         }
       }
@@ -700,61 +842,119 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                 } catch (_) {}
               }
 
-              // Extraer de OpenGraph og:title, JSON-LD, HTML title y meta description
-              if (detectedPlace == null || detectedDate == null || detectedTime == null) {
-                // OpenGraph og:title (OpenTable, Mesa 24/7, Apparta)
-                final ogTitleMatch = RegExp(r'<meta[^>]+property=["\x27]og:title["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(htmlBody)
-                    ?? RegExp(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:title["\x27]', caseSensitive: false).firstMatch(htmlBody);
-                if (ogTitleMatch != null && detectedPlace == null) {
-                  final cand = _cleanRestaurantTitle(ogTitleMatch.group(1)!);
-                  if (cand.isNotEmpty && cand.length < 60) {
+              // Extraer de JSON-LD, scripts, encabezados, OpenGraph y meta description
+              // 1. JSON-LD Schema.org (Restaurant) - Mesa 24/7 y sitios web
+              if (detectedPlace == null) {
+                final jsonLdMatch = RegExp(r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>', dotAll: true).firstMatch(htmlBody);
+                if (jsonLdMatch != null) {
+                  try {
+                    final data = json.decode(jsonLdMatch.group(1)!);
+                    if (data is Map && data['name'] != null) {
+                      final cand = _cleanRestaurantTitle(data['name'].toString().trim());
+                      if (_isValidRestaurantName(cand)) {
+                        detectedPlace = cand;
+                      }
+                    }
+                    if (data is Map && data['address'] != null) {
+                      if (data['address'] is String) {
+                        detectedAddress ??= data['address'].toString().trim();
+                      } else if (data['address'] is Map && data['address']['streetAddress'] != null) {
+                        detectedAddress ??= data['address']['streetAddress'].toString().trim();
+                      }
+                    }
+                  } catch (_) {}
+                }
+              }
+
+              // 2. JSON en variables de script (Mesa 24/7 local/restaurant o similares)
+              if (detectedPlace == null) {
+                final localJsonMatch = RegExp(r'"local"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'"restaurant"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'"establishment"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'"local_name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'"restaurant_name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'"trade_name"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody);
+                if (localJsonMatch != null) {
+                  final cand = _cleanRestaurantTitle(localJsonMatch.group(1)!);
+                  if (_isValidRestaurantName(cand)) {
                     detectedPlace = cand;
                   }
                 }
+              }
 
-                // JSON-LD Schema.org (Restaurant) - Mesa 24/7 y sitios web
-                if (detectedPlace == null) {
-                  final jsonLdMatch = RegExp(r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>', dotAll: true).firstMatch(htmlBody);
-                  if (jsonLdMatch != null) {
-                    try {
-                      final data = json.decode(jsonLdMatch.group(1)!);
-                      if (data is Map && data['name'] != null) {
-                        detectedPlace = _cleanRestaurantTitle(data['name'].toString().trim());
-                      }
-                    } catch (_) {}
-                  }
-                }
-
-                // HTML <title>
-                if (detectedPlace == null) {
-                  final titleTagMatch = RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false).firstMatch(htmlBody);
-                  if (titleTagMatch != null) {
-                    final cand = _cleanRestaurantTitle(titleTagMatch.group(1)!);
-                    if (cand.isNotEmpty && cand.length < 50) {
-                      detectedPlace = cand;
-                    }
-                  }
-                }
-
-                final metaDescMatch = RegExp(
-                  r'<meta[^>]+(?:name|itemprop)=["\x27]description["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
-                  caseSensitive: false,
-                ).firstMatch(htmlBody);
-                if (metaDescMatch != null) {
-                  final content = metaDescMatch.group(1)!;
-                  final parts = content.split('|').map((s) => s.trim()).toList();
-                  if (detectedPlace == null && parts.isNotEmpty) {
-                    var candidate = _cleanRestaurantTitle(parts[0].replaceAll(RegExp(r'\([^)]*\)'), ''));
-                    if (candidate.isNotEmpty && candidate.length < 50 && !candidate.toLowerCase().contains('comparte tu reserva')) {
-                      detectedPlace = candidate;
-                    }
-                  }
-                  for (final p in parts) {
-                    detectedDate ??= _parseSpanishDate(p);
-                    detectedTime ??= _parseTimeString(p);
+              // 3. Encabezados HTML (ej: tarjeta de Mesa 24/7 con título: <h1> o <h2> Afluente Restaurante)
+              if (detectedPlace == null) {
+                final headingRegex = RegExp(r'<h[1-4][^>]*>\s*([^<]+?)\s*</h[1-4]>', caseSensitive: false);
+                for (final m in headingRegex.allMatches(htmlBody)) {
+                  final cand = _cleanRestaurantTitle(m.group(1)!);
+                  if (_isValidRestaurantName(cand)) {
+                    detectedPlace = cand;
+                    break;
                   }
                 }
               }
+
+              // 4. Elementos HTML con clase de comercio o restaurante
+              if (detectedPlace == null) {
+                final classRegex = RegExp(
+                  r'<(?:div|span|p|a|h\d|strong|b)[^>]+class=["\x27][^"\x27]*(?:restaurant-name|local-name|restaurant_name|local_name|venue-name|establishment-name)[^"\x27]*["\x27][^>]*>\s*([^<]+?)\s*<',
+                  caseSensitive: false,
+                );
+                final classMatch = classRegex.firstMatch(htmlBody);
+                if (classMatch != null) {
+                  final cand = _cleanRestaurantTitle(classMatch.group(1)!);
+                  if (_isValidRestaurantName(cand)) {
+                    detectedPlace = cand;
+                  }
+                }
+              }
+
+              // 5. Meta description (suele tener "Afluente Restaurante | Martes 3 de Noviembre...")
+              final metaDescMatches = RegExp(
+                r'<meta[^>]+(?:name|property|itemprop)=["\x27](?:description|og:description)["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+                caseSensitive: false,
+              ).allMatches(htmlBody);
+              for (final m in metaDescMatches) {
+                final content = m.group(1)!;
+                final parts = content.split('|').map((s) => s.trim()).toList();
+                if (detectedPlace == null && parts.isNotEmpty) {
+                  final candidate = _cleanRestaurantTitle(parts[0].replaceAll(RegExp(r'\([^)]*\)'), ''));
+                  if (_isValidRestaurantName(candidate)) {
+                    detectedPlace = candidate;
+                  }
+                }
+                for (final p in parts) {
+                  detectedDate ??= _parseSpanishDate(p);
+                  detectedTime ??= _parseTimeString(p);
+                }
+              }
+
+              // 6. OpenGraph og:title (solo si es un nombre válido y no frase genérica de invitación)
+              if (detectedPlace == null) {
+                final ogTitleMatch = RegExp(r'<meta[^>]+property=["\x27]og:title["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(htmlBody)
+                    ?? RegExp(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:title["\x27]', caseSensitive: false).firstMatch(htmlBody);
+                if (ogTitleMatch != null) {
+                  final cand = _cleanRestaurantTitle(ogTitleMatch.group(1)!);
+                  if (_isValidRestaurantName(cand)) {
+                    detectedPlace = cand;
+                  }
+                }
+              }
+
+              // 7. HTML <title>
+              if (detectedPlace == null) {
+                final titleTagMatch = RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false).firstMatch(htmlBody);
+                if (titleTagMatch != null) {
+                  final cand = _cleanRestaurantTitle(titleTagMatch.group(1)!);
+                  if (_isValidRestaurantName(cand)) {
+                    detectedPlace = cand;
+                  }
+                }
+              }
+
+              // 8. Extraer dirección y coordenadas del local desde el HTML / mapa
+              detectedAddress ??= _extractAddress(htmlBody);
+              detectedLocation ??= _extractCoordinates(htmlBody);
 
               // Extraer dateTime de JSON (ej: OpenTable primary-window-vars)
               final dtMatch = RegExp(r'"reservation"\s*:\s*\{[^}]*"dateTime"\s*:\s*"([^"]+)"', caseSensitive: false).firstMatch(htmlBody) ??
@@ -891,12 +1091,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                   final headingMatches = RegExp(r'#{1,4}\s+([^\n\r#]+)').allMatches(bodyContent);
                   for (final hm in headingMatches) {
                     final cand = _cleanRestaurantTitle(hm.group(1) ?? '');
-                    if (cand.isNotEmpty &&
-                        cand.length < 50 &&
-                        !cand.toLowerCase().contains('comparte') &&
-                        !cand.toLowerCase().contains('reserva') &&
-                        !cand.toLowerCase().contains('reservation') &&
-                        !cand.toLowerCase().contains('image')) {
+                    if (_isValidRestaurantName(cand)) {
                       detectedPlace = cand;
                       break;
                     }
@@ -908,14 +1103,16 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                   final titleMatch = RegExp(r'Title:\s*(.+?)(?:\n|$)', caseSensitive: false).firstMatch(bodyContent);
                   if (titleMatch != null) {
                     final candidate = _cleanRestaurantTitle(titleMatch.group(1) ?? '');
-                    if (candidate.isNotEmpty &&
-                        candidate.length < 60 &&
-                        !candidate.toLowerCase().contains('comparte tu reserva')) {
+                    if (_isValidRestaurantName(candidate)) {
                       detectedPlace = candidate;
                     }
                   }
                 }
               }
+
+              // Extraer dirección y coordenadas en fallback
+              detectedAddress ??= _extractAddress(bodyContent);
+              detectedLocation ??= _extractCoordinates(bodyContent);
             }
           } catch (_) {}
 
@@ -953,6 +1150,11 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       // Aplicar información detectada a la interfaz
       bool updatedAny = false;
 
+      if (detectedAddress != null && detectedAddress.isNotEmpty) {
+        _detectedAddress = detectedAddress;
+        updatedAny = true;
+      }
+
       if (detectedPlace != null && detectedPlace.trim().isNotEmpty) {
         final cleanPlace = detectedPlace.trim();
         _placeController.text = cleanPlace;
@@ -960,7 +1162,21 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
           _autoCompleteTextController!.text = cleanPlace;
         }
         _lookupPlacePhoto(cleanPlace);
-        _searchPlaces('$cleanPlace Bogotá').then((places) {
+
+        // Si la página proporcionó coordenadas directas (mapa / JSON), fijarlas de inmediato
+        if (detectedLocation != null) {
+          setState(() {
+            _selectedLocation = detectedLocation;
+            _isFetchingPlace = false;
+          });
+        }
+
+        // Búsqueda en Google Places: combinando nombre y dirección para máxima precisión
+        final primaryQuery = (detectedAddress != null && detectedAddress.isNotEmpty)
+            ? '$cleanPlace $detectedAddress'
+            : '$cleanPlace Bogotá';
+
+        _searchPlaces(primaryQuery).then((places) {
           if (places.isNotEmpty && mounted) {
             if (places.first.location != null) {
               setState(() {
@@ -971,10 +1187,31 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
               _getPlaceDetails(places.first.placeId);
             }
           } else if (mounted) {
-            setState(() {
-              _selectedLocation ??= const GeoPoint(4.6698, -74.0573);
-              _isFetchingPlace = false;
-            });
+            // Reintento solo con nombre + Bogotá si la consulta con dirección fue muy estricta
+            if (detectedAddress != null && detectedAddress.isNotEmpty) {
+              _searchPlaces('$cleanPlace Bogotá').then((placesRetry) {
+                if (placesRetry.isNotEmpty && mounted) {
+                  if (placesRetry.first.location != null) {
+                    setState(() {
+                      _selectedLocation = placesRetry.first.location;
+                      _isFetchingPlace = false;
+                    });
+                  } else {
+                    _getPlaceDetails(placesRetry.first.placeId);
+                  }
+                } else if (mounted) {
+                  setState(() {
+                    _selectedLocation ??= detectedLocation ?? const GeoPoint(4.6698, -74.0573);
+                    _isFetchingPlace = false;
+                  });
+                }
+              });
+            } else {
+              setState(() {
+                _selectedLocation ??= detectedLocation ?? const GeoPoint(4.6698, -74.0573);
+                _isFetchingPlace = false;
+              });
+            }
           }
         });
         updatedAny = true;
@@ -999,6 +1236,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
             final pName = platformDetected ?? 'el enlace';
             final parts = <String>[];
             if (detectedPlace != null) parts.add('Lugar');
+            if (detectedAddress != null) parts.add('Dirección');
             if (detectedDate != null) parts.add('Fecha');
             if (detectedTime != null) parts.add('Hora');
             _linkParseMessage = '✨ Detectado desde $pName: ${parts.join(', ')}';
@@ -1295,6 +1533,7 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
         'userInstagram': userData['instagramHandle'] ?? '',
         'userGender': userData['gender'] ?? '',
         'placeName': _placeController.text.trim(),
+        'address': _detectedAddress ?? '',
         'location': savedLocation,
         'planType': _selectedPlan,
         'paymentType': _selectedPayment,
@@ -1700,8 +1939,12 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
+                          _detectedAddress != null && _detectedAddress!.isNotEmpty
+                              ? 'Ubicación fijada: $_detectedAddress (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})'
+                              : 'Ubicación fijada (${_selectedLocation!.latitude.toStringAsFixed(3)}, ${_selectedLocation!.longitude.toStringAsFixed(3)})',
                           style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
