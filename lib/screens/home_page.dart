@@ -61,6 +61,7 @@ class _HomePageState extends State<HomePage> {
     _userSub?.cancel();
     _requestsSub?.cancel();
     _invitationsSub?.cancel();
+    _matchesSub?.cancel();
     super.dispose();
   }
 
@@ -110,15 +111,42 @@ class _HomePageState extends State<HomePage> {
         });
       }
     });
+
+    // Escuchar chats con mensajes no leídos para la insignia en vivo de Citas
+    _matchesSub = FirebaseFirestore.instance
+        .collection('matches')
+        .where('users', arrayContains: user.uid)
+        .snapshots()
+        .listen((snap) {
+      if (mounted) {
+        int unread = 0;
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          final lastSenderId = data['lastSenderId']?.toString();
+          final readBy = (data['readBy'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          if (lastSenderId != null &&
+              lastSenderId.isNotEmpty &&
+              lastSenderId != user.uid &&
+              !readBy.contains(user.uid)) {
+            unread++;
+          }
+        }
+        setState(() {
+          _unreadChatsCount = unread;
+        });
+      }
+    });
   }
 
   final GlobalKey<DiscoverPageState> _discoverKey = GlobalKey<DiscoverPageState>();
   String? _userPhotoUrl;
   int _pendingRequestsCount = 0;
   int _pendingInvitationsCount = 0;
+  int _unreadChatsCount = 0;
   StreamSubscription? _userSub;
   StreamSubscription? _requestsSub;
   StreamSubscription? _invitationsSub;
+  StreamSubscription? _matchesSub;
 
   void _onItemTapped(int index) {
     setState(() {
@@ -186,7 +214,7 @@ class _HomePageState extends State<HomePage> {
                     label: 'Citas',
                     inactiveIcon: Icons.favorite_outline,
                     activeIcon: Icons.favorite,
-                    badgeCount: _pendingInvitationsCount,
+                    badgeCount: _pendingInvitationsCount + _unreadChatsCount,
                   ),
                   _buildNavItem(
                     index: 2,

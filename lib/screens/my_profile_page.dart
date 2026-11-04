@@ -13,13 +13,35 @@ import '../widgets/profile_prompts_widget.dart';
 class MyProfilePage extends StatelessWidget {
   const MyProfilePage({super.key});
 
-  int _calculateAge(DateTime birthDate) {
-    DateTime today = DateTime.now();
-    int age = today.year - birthDate.year;
-    if (today.month < birthDate.month || (today.month == birthDate.month && today.day < birthDate.day)) {
+  int _calculateAge(dynamic birthDate) {
+    if (birthDate == null) return 0;
+    DateTime dt;
+    if (birthDate is Timestamp) {
+      dt = birthDate.toDate();
+    } else if (birthDate is DateTime) {
+      dt = birthDate;
+    } else if (birthDate is String) {
+      final parsed = DateTime.tryParse(birthDate);
+      if (parsed == null) return 0;
+      dt = parsed;
+    } else {
+      return 0;
+    }
+    final today = DateTime.now();
+    int age = today.year - dt.year;
+    if (today.month < dt.month || (today.month == dt.month && today.day < dt.day)) {
       age--;
     }
     return age;
+  }
+
+  void _openInstagram(String handle) async {
+    final clean = handle.replaceAll('@', '').trim();
+    if (clean.isEmpty) return;
+    final uri = Uri.parse('https://instagram.com/$clean');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication, webOnlyWindowName: '_blank');
+    }
   }
 
   void _cerrarSesion(BuildContext context) async {
@@ -42,7 +64,9 @@ class MyProfilePage extends StatelessWidget {
       appBar: AppBar(
         centerTitle: false,
         title: const AlmonaTitle(),
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
         actions: [
           IconButton(
@@ -71,23 +95,23 @@ class MyProfilePage extends StatelessWidget {
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
-          
+
           final data = snapshot.data?.data() as Map<String, dynamic>?;
           if (data == null) {
             return const Center(child: Text('No se encontraron datos del perfil'));
           }
 
           final name = data['name'] ?? 'Usuario';
-          final birthDate = data['birthDate'] != null ? (data['birthDate'] as Timestamp).toDate() : null;
-          final age = birthDate != null ? _calculateAge(birthDate) : '?';
-          final bio = data['bio'] ?? '';
+          final ageVal = _calculateAge(data['birthDate']);
+          final age = ageVal > 0 ? ageVal.toString() : '?';
+          final bio = (data['bio'] ?? '').toString().trim();
 
           // Ocupación y escuela
-          final work = data['work'] ?? '';
-          final school = data['school'] ?? '';
+          final work = (data['work'] ?? '').toString().trim();
+          final school = (data['school'] ?? data['education'] ?? '').toString().trim();
 
-          // Redes
-          final instagramHandle = data['instagramHandle'] ?? '';
+          // Redes e intereses
+          final instagramHandle = (data['instagramHandle'] ?? '').toString().replaceAll('@', '').trim();
           final interests = (data['interests'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
           // Estilo de vida
@@ -109,21 +133,36 @@ class MyProfilePage extends StatelessWidget {
           final communication = personal['communication'];
           final languages = (personal['languages'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
-          // Fotos
+          // Lista de fotos válidas
           final List<dynamic> rawPhotos = (data['photoUrls'] as List?) ?? (data['photos'] as List?) ?? [];
           final List<String> photoUrls = rawPhotos
               .map((e) => e.toString().trim())
               .where((u) => u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('blob:')))
               .toList();
 
+          // Precargar todas las fotos del perfil en segundo plano para scroll instantáneo
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            for (final url in photoUrls) {
+              precacheImage(NetworkImage(url), context).catchError((_) {});
+            }
+          });
+
+          final bool hasPrompts = AnsweredPromptsCards.hasAnyAnswer(data['prompts']);
+          final bool has6OrMorePhotos = photoUrls.length >= 6;
+
           return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Carrusel deslizable de fotos de perfil (Swipe / Tinder style)
+                // FOTO 1 (Principal) igual que en Descubrir Personas, o estado vacío para subir fotos
                 if (photoUrls.isNotEmpty)
-                  _ProfilePhotoCarousel(photoUrls: photoUrls)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _buildContinuousPhoto(photoUrls[0]),
+                  )
                 else
                   Container(
                     width: double.infinity,
@@ -166,7 +205,7 @@ class MyProfilePage extends StatelessWidget {
                     ),
                   ),
 
-                // Nombre, edad, verificación y @instagram debajo de las fotos
+                // Nombre, edad, verificación, plan y @instagram debajo de la primera foto
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 8,
@@ -183,12 +222,7 @@ class MyProfilePage extends StatelessWidget {
                       _buildPlanBadge('PRO+', const [Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFD946EF)], Icons.diamond_rounded),
                     if (instagramHandle.isNotEmpty)
                       InkWell(
-                        onTap: () async {
-                          final uri = Uri.parse('https://instagram.com/$instagramHandle');
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
+                        onTap: () => _openInstagram(instagramHandle),
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -218,7 +252,7 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
 
-                // Apartado de Planes Pro Almona (fondo negro llamativo antes de Sobre mí)
+                // Apartado de Planes Pro Almona (función propia del perfil del usuario)
                 _buildProPlansBanner(context, data),
 
                 const SizedBox(height: 20),
@@ -389,6 +423,13 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
+                // FOTO 2
+                if (photoUrls.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[1]),
+                  ),
+
                 // Ocupación y Educación
                 if (work.isNotEmpty || school.isNotEmpty) ...[
                   _buildSectionHeader('Ocupación y Educación'),
@@ -414,6 +455,13 @@ class MyProfilePage extends StatelessWidget {
                   const SizedBox(height: 18),
                 ],
 
+                // FOTO 3
+                if (photoUrls.length > 2)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[2]),
+                  ),
+
                 // Estilo de Vida y Hábitos
                 _buildSectionHeader('Estilo de vida'),
                 Wrap(
@@ -430,6 +478,13 @@ class MyProfilePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
+                // FOTO 4
+                if (photoUrls.length > 3)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[3]),
+                  ),
+
                 // Más detalles (Educación, Familia, Comunicación, Idiomas)
                 _buildSectionHeader('Más sobre mí'),
                 Wrap(
@@ -442,18 +497,66 @@ class MyProfilePage extends StatelessWidget {
                     if (languages.isNotEmpty) _buildTagBadge('🗣️ ${languages.join(', ')}'),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
 
                 // =========================================================
-                // SECCIÓN "PROMPTS ROMPEHIELOS" (DESPLEGABLES POR CATEGORÍA)
+                // FOTOS RESTANTES Y PROMPT(S) RESPONDIDOS (IGUAL A DESCUBRIR PERSONAS)
+                // =========================================================
+                if (has6OrMorePhotos) ...[
+                  // 1. Si tiene 6 o más fotos: Foto 5 (penúltima)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[4]),
+                  ),
+
+                  // 2. Prompt(s) en medio de las dos últimas fotos
+                  if (hasPrompts)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: AnsweredPromptsCards(
+                        prompts: Map<String, dynamic>.from(data['prompts'] as Map),
+                      ),
+                    ),
+
+                  // 3. Foto 6 (última foto estándar)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: _buildContinuousPhoto(photoUrls[5]),
+                  ),
+
+                  // Fotos adicionales si hubiese más de 6
+                  for (int i = 6; i < photoUrls.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: _buildContinuousPhoto(photoUrls[i]),
+                    ),
+                ] else ...[
+                  // Si NO cuenta con todas las fotos (menos de 6 fotos):
+                  // Mostramos la Foto 5 si existe (índice 4)
+                  if (photoUrls.length > 4)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: _buildContinuousPhoto(photoUrls[4]),
+                    ),
+
+                  // Y agregamos el prompt respondido por el usuario ABAJO DE TODO:
+                  if (hasPrompts)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: AnsweredPromptsCards(
+                        prompts: Map<String, dynamic>.from(data['prompts'] as Map),
+                      ),
+                    ),
+                ],
+
+                // =========================================================
+                // SECCIÓN "ROMPEHIELOS" (DESPLEGABLES POR CATEGORÍA PARA EDITAR/RESPONDER)
                 // =========================================================
                 ProfilePromptsSection(
                   prompts: (data['prompts'] as Map<String, dynamic>?) ?? {},
                   userId: user.uid,
                   isEditable: true,
                 ),
-                const SizedBox(height: 20),
-
                 const SizedBox(height: 24),
 
                 // Botón Cerrar Sesión
@@ -476,6 +579,48 @@ class MyProfilePage extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildContinuousPhoto(String url) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        height: 380,
+        width: double.infinity,
+        color: AppColors.surface,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          cacheWidth: 900,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              color: AppColors.surface,
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2.5),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => Container(
+            color: AppColors.surface,
+            child: const Center(
+              child: Icon(Icons.broken_image, size: 50, color: AppColors.textLight),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -725,227 +870,3 @@ class MyProfilePage extends StatelessWidget {
     );
   }
 }
-
-/// Carrusel deslizador de fotos de perfil (Tinder / Bumble style)
-class _ProfilePhotoCarousel extends StatefulWidget {
-  final List<String> photoUrls;
-  const _ProfilePhotoCarousel({required this.photoUrls});
-
-  @override
-  State<_ProfilePhotoCarousel> createState() => _ProfilePhotoCarouselState();
-}
-
-class _ProfilePhotoCarouselState extends State<_ProfilePhotoCarousel> {
-  int _currentIndex = 0;
-  late final PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  void _goTo(int index) {
-    if (index >= 0 && index < widget.photoUrls.length) {
-      _pageController.animateToPage(
-        index,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeInOut,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.photoUrls.isEmpty) return const SizedBox.shrink();
-
-    final count = widget.photoUrls.length;
-
-    return Container(
-      height: 410,
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // PageView deslizable horizontalmente
-            PageView.builder(
-              controller: _pageController,
-              itemCount: count,
-              physics: const BouncingScrollPhysics(),
-              onPageChanged: (index) {
-                setState(() => _currentIndex = index);
-              },
-              itemBuilder: (context, index) {
-                return Image.network(
-                  widget.photoUrls[index],
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(
-                      color: AppColors.surface,
-                      child: const Center(
-                        child: CircularProgressIndicator(color: AppColors.primary),
-                      ),
-                    );
-                  },
-                  errorBuilder: (_, __, ___) => Container(
-                    color: const Color(0xFF1E1E1E),
-                    child: const Center(
-                      child: Icon(Icons.broken_image, size: 50, color: Colors.white54),
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            // Sombra degradada superior para legibilidad de barras indicadoras
-            if (count > 1)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 55,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.45),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-            // Barras estilo historias / Tinder en la parte superior
-            if (count > 1)
-              Positioned(
-                top: 12,
-                left: 12,
-                right: 12,
-                child: Row(
-                  children: List.generate(count, (i) {
-                    final isCurrent = i == _currentIndex;
-                    return Expanded(
-                      child: GestureDetector(
-                        onTap: () => _goTo(i),
-                        child: Container(
-                          height: 4,
-                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                          decoration: BoxDecoration(
-                            color: isCurrent ? Colors.white : Colors.white.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(2),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black26, blurRadius: 3),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-
-            // Contador de fotos (ej: 1 / 4) abajo a la derecha
-            if (count > 1)
-              Positioned(
-                bottom: 12,
-                right: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${_currentIndex + 1} / $count',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ),
-
-            // Botón flecha izquierda para cambiar foto fácilmente
-            if (count > 1 && _currentIndex > 0)
-              Positioned(
-                left: 10,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => _goTo(_currentIndex - 1),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.38),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.chevron_left, color: Colors.white, size: 26),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Botón flecha derecha para cambiar foto fácilmente
-            if (count > 1 && _currentIndex < count - 1)
-              Positioned(
-                right: 10,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => _goTo(_currentIndex + 1),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.38),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 26),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-

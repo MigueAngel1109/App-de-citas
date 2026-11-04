@@ -459,8 +459,8 @@ class _CitasPageState extends State<CitasPage> {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
-                if (docs.isEmpty) {
+                final rawDocs = snapshot.data?.docs ?? [];
+                if (rawDocs.isEmpty) {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
@@ -493,6 +493,16 @@ class _CitasPageState extends State<CitasPage> {
                   );
                 }
 
+                // Ordenar conversaciones por último mensaje más reciente
+                final docs = List<QueryDocumentSnapshot>.from(rawDocs)
+                  ..sort((a, b) {
+                    final aData = a.data() as Map<String, dynamic>;
+                    final bData = b.data() as Map<String, dynamic>;
+                    final tA = (aData['lastMessageTime'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+                    final tB = (bData['lastMessageTime'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+                    return tB.compareTo(tA);
+                  });
+
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -514,12 +524,21 @@ class _CitasPageState extends State<CitasPage> {
 
                     final placeName = data['placeName'] ?? 'Reserva';
                     final lastMsg = data['lastMessage'] ?? '¡Nuevo match!';
+                    final lastSenderId = data['lastSenderId']?.toString();
+                    final readBy = (data['readBy'] as List?)?.map((e) => e.toString()).toList() ?? [];
+                    final bool isUnread = lastSenderId != null &&
+                        lastSenderId.isNotEmpty &&
+                        lastSenderId != currentUser.uid &&
+                        !readBy.contains(currentUser.uid);
 
                     return Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppColors.divider),
+                        border: Border.all(
+                          color: isUnread ? AppColors.primary.withOpacity(0.45) : AppColors.divider,
+                          width: isUnread ? 1.4 : 1.0,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.02),
@@ -594,10 +613,30 @@ class _CitasPageState extends State<CitasPage> {
                             lastMsg,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isUnread ? FontWeight.w700 : FontWeight.normal,
+                              color: isUnread ? AppColors.textPrimary : AppColors.textSecondary,
+                            ),
                           ),
                         ),
-                        trailing: const Icon(Icons.chevron_right, color: AppColors.textLight, size: 20),
+                        trailing: isUnread
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Text(
+                                  'NUEVO',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              )
+                            : const Icon(Icons.chevron_right, color: AppColors.textLight, size: 20),
                         onTap: () {
                           Navigator.push(
                             context,

@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
+import '../utils/user_cache_service.dart';
 import '../screens/chat_detail_page.dart';
 import 'profile_prompts_widget.dart';
 
@@ -34,6 +36,8 @@ class TinderSwipeView extends StatefulWidget {
 class _TinderSwipeViewState extends State<TinderSwipeView> {
   final List<Map<String, dynamic>> _rawCandidates = [];
   final List<Map<String, dynamic>> _candidates = [];
+  final Set<String> _passedIds = {};
+  final Set<String> _likedIds = {};
   bool _isLoading = true;
   int _currentIndex = 0;
 
@@ -64,11 +68,18 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     final filters = widget.filters;
     final isPro = widget.isPro;
 
+    final baseList = _rawCandidates.where((c) {
+      final cid = c['id']?.toString() ?? '';
+      if (cid.isEmpty) return false;
+      if (_passedIds.contains(cid) || _likedIds.contains(cid)) return false;
+      return true;
+    }).toList();
+
     List<Map<String, dynamic>> filtered;
     if (filters != null) {
-      filtered = _rawCandidates.where((c) => filters.matchesCandidate(c, isPro: isPro)).toList();
+      filtered = baseList.where((c) => filters.matchesCandidate(c, isPro: isPro)).toList();
     } else {
-      filtered = List.from(_rawCandidates);
+      filtered = List.from(baseList);
     }
 
     setState(() {
@@ -76,6 +87,26 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
       _candidates.addAll(filtered);
       if (_currentIndex >= _candidates.length) {
         _currentIndex = 0;
+      }
+    });
+    _precacheUpcomingCandidates();
+  }
+
+  void _precacheUpcomingCandidates() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (int offset = 0; offset <= 2; offset++) {
+        final idx = _currentIndex + offset;
+        if (idx >= 0 && idx < _candidates.length) {
+          final c = _candidates[idx];
+          final rawPhotos = (c['photoUrls'] as List?) ?? (c['photos'] as List?) ?? [];
+          for (final p in rawPhotos) {
+            final url = p?.toString().trim() ?? '';
+            if (url.isNotEmpty && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:'))) {
+              precacheImage(NetworkImage(url), context).catchError((_) {});
+            }
+          }
+        }
       }
     });
   }
@@ -148,6 +179,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
 
         final data = doc.data();
         data['id'] = doc.id;
+        UserCacheService.put(doc.id, data);
         updatedList.add(data);
       }
 
@@ -182,10 +214,35 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     }
 
     try {
-      final myDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final results = await Future.wait([
+        FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+        SharedPreferences.getInstance(),
+        FirebaseFirestore.instance.collection('likes').where('from', isEqualTo: user.uid).get(),
+      ]);
+
+      final myDoc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+      final prefs = results[1] as SharedPreferences;
+      final likesSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+
+      final savedPassed = prefs.getStringList('passed_${user.uid}') ?? [];
+      final savedLiked = prefs.getStringList('liked_${user.uid}') ?? [];
+      _passedIds
+        ..clear()
+        ..addAll(savedPassed);
+      _likedIds
+        ..clear()
+        ..addAll(savedLiked);
+      for (final likeDoc in likesSnap.docs) {
+        final toId = likeDoc.data()['to']?.toString() ?? '';
+        if (toId.isNotEmpty) {
+          _likedIds.add(toId);
+        }
+      }
+
       if (myDoc.exists) {
         final myData = myDoc.data();
         if (myData != null) {
+          UserCacheService.put(user.uid, myData);
           _myInterestedIn = myData['interestedIn']?.toString();
           _myName = myData['name']?.toString() ?? 'Usuario';
           final pList = (myData['photoUrls'] as List?) ?? (myData['photos'] as List?);
@@ -202,11 +259,43 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     }
   }
 
+  Future<void> _persistSeenId(String candidateId, {required bool isLiked}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || candidateId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (isLiked) {
+        _likedIds.add(candidateId);
+        await prefs.setStringList('liked_${user.uid}', _likedIds.toList());
+      } else {
+        _passedIds.add(candidateId);
+        await prefs.setStringList('passed_${user.uid}', _passedIds.toList());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _resetSeenCandidates() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('passed_${user.uid}');
+      } catch (_) {}
+    }
+    setState(() {
+      _passedIds.clear();
+      _currentIndex = 0;
+    });
+    _applyFilters();
+  }
+
   void _onPass() {
     if (_currentIndex >= _candidates.length) return;
-    setState(() {
-      _currentIndex++;
-    });
+    final currentCandidateId = _candidates[_currentIndex]['id']?.toString() ?? '';
+    if (currentCandidateId.isNotEmpty) {
+      _persistSeenId(currentCandidateId, isLiked: false);
+    }
+    _applyFilters();
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
@@ -220,6 +309,8 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     final candidateName = candidate['name'] ?? 'Usuario';
     final rawPhotos = (candidate['photoUrls'] as List?) ?? (candidate['photos'] as List?) ?? [];
     final candidatePhoto = rawPhotos.isNotEmpty ? rawPhotos[0].toString() : '';
+
+    await _persistSeenId(candidateId, isLiked: true);
 
     try {
       // 1. Guardar Like emitido
@@ -267,7 +358,11 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     }
   }
 
-  void _promptDateInvitation(Map<String, dynamic> candidate) async {
+  void _promptDateInvitation(
+    Map<String, dynamic> candidate, {
+    String? initialPromptQuestion,
+    String? initialPromptAnswer,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -294,6 +389,10 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
     final messageCtrl = TextEditingController();
     String? selectedReservationId = myReservations.isNotEmpty ? myReservations.first.id : null;
     bool isSubmitting = false;
+    final bool hasPromptContext = initialPromptQuestion != null &&
+        initialPromptQuestion.isNotEmpty &&
+        initialPromptAnswer != null &&
+        initialPromptAnswer.isNotEmpty;
 
     await showModalBottomSheet(
       context: context,
@@ -394,6 +493,48 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (hasPromptContext) ...[
+                                    Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withValues(alpha: 0.06),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.reply_rounded, size: 15, color: AppColors.primary),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  'Reaccionando a: $initialPromptQuestion',
+                                                  style: const TextStyle(
+                                                    fontSize: 11.5,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: AppColors.primary,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '“$initialPromptAnswer”',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontStyle: FontStyle.italic,
+                                              color: AppColors.textPrimary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                   // Si no tiene reservas activas, sugerir publicar o dar Like directo
                                   Container(
                                     padding: const EdgeInsets.all(16),
@@ -442,9 +583,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                             onPressed: () async {
                                               Navigator.pop(modalCtx);
                                               await _handleLike(candidate, notifyMatch: true);
-                                              setState(() {
-                                                _currentIndex++;
-                                              });
+                                              _applyFilters();
                                               if (_scrollController.hasClients) {
                                                 _scrollController.jumpTo(0);
                                               }
@@ -556,17 +695,64 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                   }),
 
                                   const SizedBox(height: 12),
-                                  const Text(
-                                    'Mensaje opcional para acompañar la invitación:',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                                  if (hasPromptContext) ...[
+                                    Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withValues(alpha: 0.06),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.reply_rounded, size: 15, color: AppColors.primary),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  'Respondiendo a: $initialPromptQuestion',
+                                                  style: const TextStyle(
+                                                    fontSize: 11.5,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: AppColors.primary,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '“$initialPromptAnswer”',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontStyle: FontStyle.italic,
+                                              color: AppColors.textPrimary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                  Text(
+                                    hasPromptContext
+                                        ? 'Tu respuesta al rompehielos + invitación:'
+                                        : 'Mensaje opcional para acompañar la invitación:',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
                                   ),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: messageCtrl,
                                     maxLines: 2,
+                                    autofocus: hasPromptContext,
                                     scrollPadding: const EdgeInsets.only(bottom: 40),
                                     decoration: InputDecoration(
-                                      hintText: 'Ej: ¡Hola! Me encantó tu vibra, tengo esta reserva y me gustaría que vinieras 🍸',
+                                      hintText: hasPromptContext
+                                          ? 'Escribe qué te pareció su respuesta y acompáñalo con tu reserva...'
+                                          : 'Ej: ¡Hola! Me encantó tu vibra, tengo esta reserva y me gustaría que vinieras 🍸',
                                       hintStyle: const TextStyle(color: AppColors.textLight, fontSize: 12),
                                       filled: true,
                                       fillColor: const Color(0xFFF9FAFB),
@@ -600,6 +786,12 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                             try {
                                               final chosenRes = myReservations.firstWhere((r) => r.id == selectedReservationId);
                                               final chosenData = chosenRes.data() as Map<String, dynamic>;
+                                              final rawMsg = messageCtrl.text.trim();
+                                              final finalMsg = hasPromptContext
+                                                  ? (rawMsg.isNotEmpty
+                                                      ? '💬 Sobre "$initialPromptQuestion": $rawMsg'
+                                                      : '💬 Me encantó tu respuesta en "$initialPromptQuestion": "$initialPromptAnswer"')
+                                                  : rawMsg;
 
                                               final invRef = FirebaseFirestore.instance.collection('invitations').doc();
                                               await invRef.set({
@@ -615,7 +807,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                                 'planType': chosenData['planType'] ?? 'Cita',
                                                 'paymentType': chosenData['paymentType'] ?? 'Yo invito',
                                                 'dateTime': chosenData['dateTime'] ?? FieldValue.serverTimestamp(),
-                                                'message': messageCtrl.text.trim(),
+                                                'message': finalMsg,
                                                 'status': 'pending',
                                                 'createdAt': FieldValue.serverTimestamp(),
                                               });
@@ -626,9 +818,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                                               if (!mounted) return;
                                               if (modalCtx.mounted) Navigator.pop(modalCtx);
 
-                                              setState(() {
-                                                _currentIndex++;
-                                              });
+                                              _applyFilters();
                                               if (_scrollController.hasClients) {
                                                 _scrollController.jumpTo(0);
                                               }
@@ -1261,6 +1451,11 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 padding: const EdgeInsets.only(bottom: 18),
                 child: AnsweredPromptsCards(
                   prompts: Map<String, dynamic>.from(candidate['prompts'] as Map),
+                  onReplyPrompt: (q, a) => _promptDateInvitation(
+                    candidate,
+                    initialPromptQuestion: q,
+                    initialPromptAnswer: a,
+                  ),
                 ),
               ),
 
@@ -1291,6 +1486,11 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
                 padding: const EdgeInsets.only(bottom: 18),
                 child: AnsweredPromptsCards(
                   prompts: Map<String, dynamic>.from(candidate['prompts'] as Map),
+                  onReplyPrompt: (q, a) => _promptDateInvitation(
+                    candidate,
+                    initialPromptQuestion: q,
+                    initialPromptAnswer: a,
+                  ),
                 ),
               ),
           ],
@@ -1352,16 +1552,28 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
       child: Container(
         height: 380,
         width: double.infinity,
-        color: const Color(0xFF1E1E1E),
+        color: AppColors.surface,
         child: Image.network(
           url,
           fit: BoxFit.cover,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          cacheWidth: 900,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
           loadingBuilder: (context, child, loadingProgress) {
             if (loadingProgress == null) return child;
             return Container(
               color: AppColors.surface,
               child: const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
+                child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2.5),
               ),
             );
           },
@@ -1564,10 +1776,7 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
             else
               ElevatedButton.icon(
                 onPressed: () {
-                  setState(() {
-                    _currentIndex = 0;
-                  });
-                  _loadCandidates();
+                  _resetSeenCandidates();
                 },
                 icon: const Icon(Icons.refresh, color: Colors.white),
                 label: const Text('Volver a explorar perfiles',

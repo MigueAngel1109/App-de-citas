@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
+import '../utils/user_cache_service.dart';
 import 'profile_prompts_widget.dart';
 
 /// Modal bottom sheet para visualizar el perfil completo de un usuario
@@ -144,21 +145,22 @@ class _UserProfileModalState extends State<UserProfileModal> {
               ),
               const Divider(height: 1, color: AppColors.divider),
 
-              // Contenido con Future de Firestore
+              // Contenido con caché instantánea + refresco en segundo plano desde Firestore
               Expanded(
-                child: FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance.collection('users').doc(widget.userId).get(),
+                child: FutureBuilder<Map<String, dynamic>?>(
+                  initialData: UserCacheService.get(widget.userId),
+                  future: UserCacheService.fetch(widget.userId),
                   builder: (context, snapshot) {
+                    final cachedOrFresh = snapshot.data;
+                    if (cachedOrFresh != null && cachedOrFresh.isNotEmpty) {
+                      return _buildFullProfile(context, cachedOrFresh, scrollController);
+                    }
+
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator(color: AppColors.primary));
                     }
 
-                    if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
-                      return _buildFallbackView(scrollController);
-                    }
-
-                    final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
-                    return _buildFullProfile(context, data, scrollController);
+                    return _buildFallbackView(scrollController);
                   },
                 ),
               ),
@@ -258,6 +260,14 @@ class _UserProfileModalState extends State<UserProfileModal> {
     if (photoUrls.isEmpty && widget.fallbackPhoto != null && widget.fallbackPhoto!.isNotEmpty) {
       photoUrls.add(widget.fallbackPhoto!);
     }
+
+    // Precargar todas las fotos del perfil en segundo plano
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final url in photoUrls) {
+        precacheImage(NetworkImage(url), context).catchError((_) {});
+      }
+    });
 
     final bool hasPrompts = AnsweredPromptsCards.hasAnyAnswer(data['prompts']);
     final bool has6OrMorePhotos = photoUrls.length >= 6;
@@ -665,16 +675,28 @@ class _UserProfileModalState extends State<UserProfileModal> {
       child: Container(
         height: 380,
         width: double.infinity,
-        color: const Color(0xFF1E1E1E),
+        color: AppColors.surface,
         child: Image.network(
           url,
           fit: BoxFit.cover,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          cacheWidth: 900,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
           loadingBuilder: (context, child, loadingProgress) {
             if (loadingProgress == null) return child;
             return Container(
               color: AppColors.surface,
               child: const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
+                child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2.5),
               ),
             );
           },

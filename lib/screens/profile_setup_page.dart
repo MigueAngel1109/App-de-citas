@@ -440,15 +440,17 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     List<XFile> pickedList = [];
     try {
       pickedList = await _picker.pickMultiImage(
-        imageQuality: 85,
-        maxWidth: 1200,
+        imageQuality: 80,
+        maxWidth: 1080,
+        maxHeight: 1440,
         requestFullMetadata: false,
       );
     } catch (_) {
       final single = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85,
-        maxWidth: 1200,
+        imageQuality: 80,
+        maxWidth: 1080,
+        maxHeight: 1440,
         requestFullMetadata: false,
       );
       if (single != null) {
@@ -524,25 +526,30 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     setState(() => _isSaving = true);
 
     try {
-      final List<String> photoUrls = [];
-      for (int i = 0; i < 6; i++) {
+      final uploadFutures = List.generate(6, (i) async {
         if (_photos[i] != null) {
           final ref = FirebaseStorage.instance.ref().child('users/${user.uid}/photos/photo_$i.jpg');
           final bytes = _photoBytes[i] ?? await _photos[i]!.readAsBytes();
-          final metadata = SettableMetadata(contentType: 'image/jpeg');
+          final metadata = SettableMetadata(
+            contentType: 'image/jpeg',
+            cacheControl: 'public, max-age=31536000',
+          );
           await ref.putData(bytes, metadata).timeout(
             const Duration(seconds: 25),
             onTimeout: () => throw Exception('Tiempo de espera agotado al subir foto ${i + 1}'),
           );
-          final url = await ref.getDownloadURL().timeout(
+          return await ref.getDownloadURL().timeout(
             const Duration(seconds: 15),
             onTimeout: () => throw Exception('Tiempo de espera agotado al obtener URL de foto ${i + 1}'),
           );
-          photoUrls.add(url);
         } else if (_existingPhotoUrls[i] != null && _existingPhotoUrls[i]!.isNotEmpty) {
-          photoUrls.add(_existingPhotoUrls[i]!);
+          return _existingPhotoUrls[i]!;
         }
-      }
+        return null;
+      });
+
+      final uploadedResults = await Future.wait(uploadFutures);
+      final List<String> photoUrls = uploadedResults.whereType<String>().toList();
 
       final profileData = {
         'name': _nameController.text.trim(),

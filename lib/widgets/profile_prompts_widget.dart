@@ -532,8 +532,13 @@ class _ProfilePromptsSectionState extends State<ProfilePromptsSection> {
 /// Tarjeta moderna tipo Hinge / Bumble para mostrar los prompts respondidos entre las fotos
 class AnsweredPromptsCards extends StatelessWidget {
   final Map<String, dynamic> prompts;
+  final void Function(String prompt, String answer)? onReplyPrompt;
 
-  const AnsweredPromptsCards({super.key, required this.prompts});
+  const AnsweredPromptsCards({
+    super.key,
+    required this.prompts,
+    this.onReplyPrompt,
+  });
 
   static bool hasAnyAnswer(dynamic promptsData) {
     if (promptsData == null || promptsData is! Map) return false;
@@ -608,6 +613,39 @@ class AnsweredPromptsCards extends StatelessWidget {
                   height: 1.35,
                 ),
               ),
+              if (onReplyPrompt != null) ...[
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: InkWell(
+                    onTap: () => onReplyPrompt!(entry.key, entry.value),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.reply_rounded, size: 15, color: AppColors.primary),
+                          SizedBox(width: 6),
+                          Text(
+                            'Responder a este rompehielos 💬',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         );

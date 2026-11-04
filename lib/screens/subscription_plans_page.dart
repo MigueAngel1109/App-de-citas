@@ -326,77 +326,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
-
-                      // Banner Principal de la insignia seleccionada (Tamaño homogéneo garantizado)
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: double.infinity,
-                        constraints: const BoxConstraints(minHeight: 195),
-                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: _tierGradient,
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _tierAccentColor.withValues(alpha: 0.4),
-                              blurRadius: 28,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                isPro ? Icons.workspace_premium_rounded : Icons.diamond_rounded,
-                                color: Colors.white,
-                                size: 44,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              isPro ? 'Almona Pro' : 'Almona Pro+',
-                              style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            SizedBox(
-                              height: 38,
-                              child: Center(
-                                child: Text(
-                                  isPro
-                                      ? 'Multiplica tus planes, citas y visibilidad'
-                                      : 'Exclusividad máxima, reservas ilimitadas y Top Prioridad',
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
                       // Selector de Período (Semanal, Mensual, Trimestral) según Tabla 2
                       const Align(
@@ -443,25 +373,36 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       ),
                       const SizedBox(height: 28),
 
-                      // Lista de Beneficios Clave del Plan Seleccionado (Tabla 1)
+                      // Lista de Beneficios Clave o Tabla Comparativa sobrepuesta en el mismo espacio
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Beneficios incluidos en ${isPro ? 'Pro' : 'Pro+'}:',
-                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            Expanded(
+                              child: Text(
+                                _showComparisonTable
+                                    ? 'Comparativa de Planes:'
+                                    : 'Beneficios incluidos en ${isPro ? 'Pro' : 'Pro+'}:',
+                                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
                             ),
                             TextButton.icon(
                               onPressed: () => setState(() => _showComparisonTable = !_showComparisonTable),
+                              style: TextButton.styleFrom(
+                                backgroundColor: _showComparisonTable
+                                    ? _tierAccentColor.withValues(alpha: 0.18)
+                                    : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
                               icon: Icon(
-                                _showComparisonTable ? Icons.expand_less : Icons.table_chart_outlined,
+                                _showComparisonTable ? Icons.close_rounded : Icons.table_chart_outlined,
                                 size: 16,
                                 color: _tierAccentColor,
                               ),
                               label: Text(
-                                _showComparisonTable ? 'Ocultar tabla' : 'Comparar todo',
+                                _showComparisonTable ? 'Quitar comparación' : 'Comparar todo',
                                 style: TextStyle(color: _tierAccentColor, fontSize: 13, fontWeight: FontWeight.bold),
                               ),
                             ),
@@ -470,14 +411,21 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Tarjetas de beneficios del plan seleccionado
-                      ..._buildKeyBenefitsList(isPro),
-
-                      // Tabla completa desplegable si el usuario desea ver Gratis vs Pro vs Pro+
-                      if (_showComparisonTable) ...[
-                        const SizedBox(height: 18),
-                        _buildCompleteComparisonTable(),
-                      ],
+                      // Mostrar la comparación sobrepuesta en el lugar de la lista de beneficios (y poder quitarla)
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: _showComparisonTable
+                            ? KeyedSubtree(
+                                key: const ValueKey('comparison_table'),
+                                child: _buildCompleteComparisonTable(),
+                              )
+                            : KeyedSubtree(
+                                key: ValueKey('benefits_list_$isPro'),
+                                child: Column(
+                                  children: _buildKeyBenefitsList(isPro),
+                                ),
+                              ),
+                      ),
 
                       const SizedBox(height: 16),
                       // Notas legales y cancelación
@@ -853,50 +801,286 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     );
   }
 
-  // Tabla completa comparativa Gratis vs Pro vs Pro+ (según Imagen 1)
+  // Tabla completa comparativa Gratis vs Pro vs Pro+ sobrepuesta en la lista de beneficios
   Widget _buildCompleteComparisonTable() {
-    final rows = [
-      ['Reservas activas', '1 a la vez', 'Hasta 3 simultáneas', 'Ilimitadas'],
-      ['Solicitudes diarias', '3 a 5 por día', 'Ilimitadas', 'Ilimitadas'],
-      ['Prioridad postulación', 'Cronológica', 'Destacada anfitrión', 'Top Prioridad (VIP)'],
-      ['Mensaje presentación', '100 caracteres', 'Personalizado amplio', 'Destacado + Nota de voz'],
-      ['Ver interesados', 'Oculto / Borroso', 'Quién visitó reservas', 'Perfil + Reservas'],
-      ['Boost de reserva', 'No incluido', '1 Boost mensual (24h)', '3 Boosts + Horas pico'],
-      ['Filtros avanzados', 'Básicos', 'Pago 50/50, vibe, edad', 'Filtros Pro + Verificación'],
-      ['Modo Incógnito', 'No', 'Ocultar en línea / leído', 'Modo Fantasma completo'],
-      ['Garantía / Reputación', 'Sistema base', 'Escudo cancelaciones', 'Insignia VIP confiabilidad'],
+    final isPro = _selectedTier == SubscriptionTier.pro;
+    final rows = <Map<String, dynamic>>[
+      {
+        'icon': Icons.calendar_today_rounded,
+        'title': 'Reservas activas',
+        'free': '1 a la vez',
+        'pro': 'Hasta 3 simultáneas',
+        'proPlus': 'Ilimitadas',
+      },
+      {
+        'icon': Icons.all_inclusive_rounded,
+        'title': 'Solicitudes diarias',
+        'free': '3 a 5 por día',
+        'pro': 'Ilimitadas',
+        'proPlus': 'Ilimitadas',
+      },
+      {
+        'icon': Icons.priority_high_rounded,
+        'title': 'Prioridad postulación',
+        'free': 'Cronológica',
+        'pro': 'Destacada anfitrión',
+        'proPlus': 'Top Prioridad (VIP)',
+      },
+      {
+        'icon': Icons.chat_bubble_outline_rounded,
+        'title': 'Mensaje presentación',
+        'free': '100 caracteres',
+        'pro': 'Personalizado amplio',
+        'proPlus': 'Destacado + Nota de voz',
+      },
+      {
+        'icon': Icons.visibility_outlined,
+        'title': 'Ver interesados',
+        'free': 'Oculto / Borroso',
+        'pro': 'Quién visitó reservas',
+        'proPlus': 'Perfil + Reservas',
+      },
+      {
+        'icon': Icons.bolt_rounded,
+        'title': 'Boost de reserva',
+        'free': 'No incluido',
+        'pro': '1 Boost mensual (24h)',
+        'proPlus': '3 Boosts + Horas pico',
+      },
+      {
+        'icon': Icons.filter_alt_outlined,
+        'title': 'Filtros avanzados',
+        'free': 'Básicos',
+        'pro': 'Pago 50/50, vibe, edad',
+        'proPlus': 'Filtros Pro + Verificación',
+      },
+      {
+        'icon': Icons.visibility_off_rounded,
+        'title': 'Modo Incógnito',
+        'free': 'No',
+        'pro': 'Ocultar en línea / leído',
+        'proPlus': 'Modo Fantasma completo',
+      },
+      {
+        'icon': Icons.shield_outlined,
+        'title': 'Garantía / Reputación',
+        'free': 'Sistema base',
+        'pro': 'Escudo cancelaciones',
+        'proPlus': 'Insignia VIP confiabilidad',
+      },
     ];
 
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: const Color(0xFF171721),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: _tierAccentColor.withValues(alpha: 0.45), width: 1.3),
+        boxShadow: [
+          BoxShadow(
+            color: _tierAccentColor.withValues(alpha: 0.15),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(Colors.white.withOpacity(0.08)),
-            columnSpacing: 18,
-            columns: const [
-              DataColumn(label: Text('Característica', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 12))),
-              DataColumn(label: Text('Gratis', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 12))),
-              DataColumn(label: Text('Pro', style: TextStyle(color: Color(0xFFFF7A00), fontWeight: FontWeight.bold, fontSize: 12))),
-              DataColumn(label: Text('Pro+', style: TextStyle(color: Color(0xFFA855F7), fontWeight: FontWeight.bold, fontSize: 12))),
-            ],
-            rows: rows.map((r) {
-              return DataRow(
-                cells: [
-                  DataCell(Text(r[0], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600))),
-                  DataCell(Text(r[1], style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 11))),
-                  DataCell(Text(r[2], style: const TextStyle(color: Color(0xFFFFB800), fontSize: 11, fontWeight: FontWeight.w600))),
-                  DataCell(Text(r[3], style: const TextStyle(color: Color(0xFFC084FC), fontSize: 11, fontWeight: FontWeight.w700))),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Encabezado de la tabla con opción de cambiar o cerrar comparación
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                border: const Border(bottom: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Text(
+                      'Beneficio',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                  const Expanded(
+                    flex: 2,
+                    child: Text(
+                      'Gratis',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white60, fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedTier = SubscriptionTier.pro),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: isPro ? const Color(0xFFFF7A00).withValues(alpha: 0.25) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: isPro ? Border.all(color: const Color(0xFFFF7A00), width: 1) : null,
+                        ),
+                        child: const Text(
+                          'Pro',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Color(0xFFFF7A00), fontWeight: FontWeight.w900, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    flex: 3,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedTier = SubscriptionTier.proPlus),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: !isPro ? const Color(0xFFA855F7).withValues(alpha: 0.25) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: !isPro ? Border.all(color: const Color(0xFFA855F7), width: 1) : null,
+                        ),
+                        child: const Text(
+                          'Pro+',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Color(0xFFC084FC), fontWeight: FontWeight.w900, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
+              ),
+            ),
+
+            // Filas comparativas con la columna del plan activo sobre-pintada
+            ...rows.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final r = entry.value;
+              final isEven = idx % 2 == 0;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isEven ? Colors.white.withValues(alpha: 0.02) : Colors.transparent,
+                  border: idx < rows.length - 1
+                      ? Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06)))
+                      : null,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: Row(
+                        children: [
+                          Icon(r['icon'] as IconData, color: _tierAccentColor, size: 15),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              r['title'] as String,
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        r['free'] as String,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 10),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 5),
+                        decoration: BoxDecoration(
+                          color: isPro
+                              ? const Color(0xFFFF7A00).withValues(alpha: 0.18)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: isPro
+                              ? Border.all(color: const Color(0xFFFF7A00).withValues(alpha: 0.5), width: 0.9)
+                              : null,
+                        ),
+                        child: Text(
+                          r['pro'] as String,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isPro ? const Color(0xFFFFB800) : const Color(0xFFFFB800).withValues(alpha: 0.65),
+                            fontSize: 10.5,
+                            fontWeight: isPro ? FontWeight.w800 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 5),
+                        decoration: BoxDecoration(
+                          color: !isPro
+                              ? const Color(0xFFA855F7).withValues(alpha: 0.2)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: !isPro
+                              ? Border.all(color: const Color(0xFFA855F7).withValues(alpha: 0.55), width: 0.9)
+                              : null,
+                        ),
+                        child: Text(
+                          r['proPlus'] as String,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: !isPro ? const Color(0xFFD8B4FE) : const Color(0xFFC084FC).withValues(alpha: 0.65),
+                            fontSize: 10.5,
+                            fontWeight: !isPro ? FontWeight.w800 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               );
-            }).toList(),
-          ),
+            }),
+
+            // Pie con botón para cerrar la comparación y volver a los beneficios individuales
+            InkWell(
+              onTap: () => setState(() => _showComparisonTable = false),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.visibility_off_outlined, size: 15, color: _tierAccentColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Quitar comparación',
+                      style: TextStyle(
+                        color: _tierAccentColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

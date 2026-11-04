@@ -17,7 +17,9 @@ import '../widgets/almona_title.dart';
 import '../widgets/discovery_filters_modal.dart';
 import 'my_profile_page.dart';
 import '../utils/zone_data.dart';
+import '../utils/user_cache_service.dart';
 import 'publish_reservation_page.dart';
+import 'subscription_plans_page.dart';
 import '../utils/place_photo_service.dart';
 
 class ReservationMapItem {
@@ -152,6 +154,7 @@ class DiscoverPageState extends State<DiscoverPage> {
           if (snap.exists && snap.data() != null) {
             final data = snap.data()!;
             _currentUserData = data;
+            UserCacheService.put(user.uid, data);
             if (data['preferredZones'] != null && data['preferredZones'] is List) {
               final newZones = (data['preferredZones'] as List).map((e) => e.toString()).toSet();
               if (newZones.length != _preferredZones.length || !_preferredZones.containsAll(newZones)) {
@@ -595,33 +598,85 @@ class DiscoverPageState extends State<DiscoverPage> {
       final Set<Marker> newMarkers = {};
       final List<ReservationMapItem> newReservationsList = [];
       final Map<String, Map<String, dynamic>?> userDocsCache = {};
-      
-      for (var doc in snapshot.docs) {
-        try {
-          final data = doc.data();
-          final latLng = _parseLocation(data['location'], data['latitude'], data['longitude']);
-          if (latLng == null) continue;
 
-          // FILTRO DE ZONAS (Considera filtros activos del usuario):
-          if (_filters.selectedZones.isNotEmpty) {
-            if (!ZoneData.isPointInAnyZone(latLng, _filters.selectedZones)) {
-              final docZone = (data['zone'] ?? data['zoneName'])?.toString().trim();
-              bool match = false;
-              if (docZone != null && docZone.isNotEmpty) {
-                final normDoc = ZoneData.normalizeZoneName(docZone);
-                for (final sz in _filters.selectedZones) {
-                  if (ZoneData.normalizeZoneName(sz) == normDoc) {
-                    match = true;
-                    break;
-                  }
+      // 1. Pre-filtrar reservas por ubicación/zona y recolectar IDs de usuarios únicos para consultar en paralelo
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> validDocs = [];
+      final Set<String> uniqueUserIds = {};
+
+      final nowThreshold = DateTime.now().subtract(const Duration(hours: 2));
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final status = data['status']?.toString().toLowerCase();
+        if (status == 'cancelled' || status == 'deleted' || status == 'expired') continue;
+
+        // Ocultar del mapa las reservas cuya fecha/hora ya venció hace más de 2 horas
+        final rawDt = data['dateTime'];
+        DateTime? resDateTime;
+        if (rawDt is Timestamp) {
+          resDateTime = rawDt.toDate();
+        } else if (rawDt is DateTime) {
+          resDateTime = rawDt;
+        } else if (rawDt is String) {
+          resDateTime = DateTime.tryParse(rawDt);
+        }
+        if (resDateTime != null && resDateTime.isBefore(nowThreshold)) {
+          continue;
+        }
+
+        final latLng = _parseLocation(data['location'], data['latitude'], data['longitude']);
+        if (latLng == null) continue;
+
+        if (_filters.selectedZones.isNotEmpty) {
+          if (!ZoneData.isPointInAnyZone(latLng, _filters.selectedZones)) {
+            final docZone = (data['zone'] ?? data['zoneName'])?.toString().trim();
+            bool match = false;
+            if (docZone != null && docZone.isNotEmpty) {
+              final normDoc = ZoneData.normalizeZoneName(docZone);
+              for (final sz in _filters.selectedZones) {
+                if (ZoneData.normalizeZoneName(sz) == normDoc) {
+                  match = true;
+                  break;
                 }
               }
-              if (!match) continue;
             }
-          } else if (!_isReservationInPreferredZones(latLng, data)) {
-            continue;
+            if (!match) continue;
           }
+        } else if (!_isReservationInPreferredZones(latLng, data)) {
+          continue;
+        }
 
+        validDocs.add(doc);
+        final uid = data['userId'] as String?;
+        if (uid != null && uid.isNotEmpty) {
+          uniqueUserIds.add(uid);
+        }
+      }
+
+      // Consultar todos los perfiles de anfitriones en paralelo y sincronizar caché en memoria
+      if (uniqueUserIds.isNotEmpty) {
+        await Future.wait(uniqueUserIds.map((uid) async {
+          try {
+            final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+            final uData = userDoc.data();
+            userDocsCache[uid] = uData;
+            if (uData != null) {
+              UserCacheService.put(uid, uData);
+            }
+          } catch (_) {
+            userDocsCache[uid] = UserCacheService.get(uid);
+          }
+        }));
+      }
+
+      // 2. Construir lista temporal de items válidos y recolectar URLs de fotos de marcadores para generarlos en paralelo
+      final Set<String> uncachedMarkerPhotos = {};
+      final List<ReservationMapItem> pendingItems = [];
+
+      for (var doc in validDocs) {
+        try {
+          final data = doc.data();
+          final latLng = _parseLocation(data['location'], data['latitude'], data['longitude'])!;
           final userId = data['userId'] as String?;
           String userName = (data['userName'] != null && (data['userName'] as String).isNotEmpty)
               ? data['userName']
@@ -631,22 +686,9 @@ class DiscoverPageState extends State<DiscoverPage> {
           int? hostAge;
           String hostInstagram = '';
           String hostGender = (data['userGender'] ?? '').toString();
-          
-          // Consultar los datos frescos del usuario en 'users' para garantizar que la foto, nombre
-          // y género reflejen cualquier cambio de perfil reciente.
+
           if (userId != null && userId.isNotEmpty) {
-            Map<String, dynamic>? userData;
-            if (userDocsCache.containsKey(userId)) {
-              userData = userDocsCache[userId];
-            } else {
-              try {
-                final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-                userData = userDoc.data();
-                userDocsCache[userId] = userData;
-              } catch (_) {
-                userDocsCache[userId] = null;
-              }
-            }
+            final userData = userDocsCache[userId];
             if (userData != null) {
               if (userData['name'] != null && (userData['name'] as String).isNotEmpty) {
                 userName = userData['name'];
@@ -665,7 +707,6 @@ class DiscoverPageState extends State<DiscoverPage> {
             }
           }
 
-          // FILTROS BÁSICOS Y AVANZADOS (PRO) PARA RESERVAS:
           final currentUserId = FirebaseAuth.instance.currentUser?.uid;
           final isMyOwnReservation = userId != null && userId == currentUserId;
           final candidatePlan = data['planType'] ?? 'Comida';
@@ -681,22 +722,11 @@ class DiscoverPageState extends State<DiscoverPage> {
               paymentType: candidatePayment,
               isPro: _isCurrentUserPro,
             );
-            if (!matches) {
-              continue;
-            }
+            if (!matches) continue;
           }
 
-          // Generar el marcador (burbuja circular) usando caché
-          BitmapDescriptor icon;
-          if (_markerCache.containsKey(photoUrl)) {
-            icon = _markerCache[photoUrl]!;
-          } else {
-            try {
-              icon = await createCustomMarkerBitmap(photoUrl);
-              _markerCache[photoUrl] = icon;
-            } catch (e) {
-              icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose);
-            }
+          if (!_markerCache.containsKey(photoUrl)) {
+            uncachedMarkerPhotos.add(photoUrl);
           }
 
           final placeName = data['placeName'] ?? 'Restaurante';
@@ -719,7 +749,7 @@ class DiscoverPageState extends State<DiscoverPage> {
 
           final restaurantPhoto = _resolveRestaurantPhoto(data, planType, doc.id, placeName: placeName, docId: doc.id);
 
-          final resItem = ReservationMapItem(
+          pendingItems.add(ReservationMapItem(
             id: doc.id,
             data: data,
             latLng: latLng,
@@ -739,31 +769,46 @@ class DiscoverPageState extends State<DiscoverPage> {
             hostPhoto: photoUrl,
             hostInstagram: hostInstagram,
             restaurantPhoto: restaurantPhoto,
-          );
-          newReservationsList.add(resItem);
-
-          newMarkers.add(
-            Marker(
-              markerId: MarkerId(doc.id),
-              position: latLng,
-              icon: icon,
-              infoWindow: InfoWindow.noText,
-              onTap: () {
-                final idx = _reservationsList.indexWhere((r) => r.id == doc.id);
-                if (idx != -1) {
-                  _goToReservation(idx);
-                } else {
-                  setState(() {
-                    _selectedReservation = resItem;
-                  });
-                  _smoothPanTo(latLng);
-                }
-              },
-            ),
-          );
+          ));
         } catch (e) {
           debugPrint('Error processing doc ${doc.id}: $e');
         }
+      }
+
+      // 3. Generar todos los iconos de marcadores faltantes en paralelo
+      if (uncachedMarkerPhotos.isNotEmpty) {
+        await Future.wait(uncachedMarkerPhotos.map((pUrl) async {
+          try {
+            _markerCache[pUrl] = await createCustomMarkerBitmap(pUrl);
+          } catch (_) {
+            _markerCache[pUrl] = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose);
+          }
+        }));
+      }
+
+      // 4. Ensamblar marcadores y precargar fotos del carrusel en segundo plano
+      for (final resItem in pendingItems) {
+        final icon = _markerCache[resItem.hostPhoto] ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose);
+        newReservationsList.add(resItem);
+        newMarkers.add(
+          Marker(
+            markerId: MarkerId(resItem.id),
+            position: resItem.latLng,
+            icon: icon,
+            infoWindow: InfoWindow.noText,
+            onTap: () {
+              final idx = _reservationsList.indexWhere((r) => r.id == resItem.id);
+              if (idx != -1) {
+                _goToReservation(idx);
+              } else {
+                setState(() {
+                  _selectedReservation = resItem;
+                });
+                _smoothPanTo(resItem.latLng);
+              }
+            },
+          ),
+        );
       }
 
       if (mounted) {
@@ -783,6 +828,19 @@ class DiscoverPageState extends State<DiscoverPage> {
             // Fija y visible siempre en el mapa desde el inicio para pasar entre citas directamente
             _selectedReservationIndex = 0;
             _selectedReservation = newReservationsList.first;
+          }
+        });
+
+        // Precargar fotos de restaurantes y anfitriones en segundo plano
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          for (final item in newReservationsList.take(10)) {
+            if (item.restaurantPhoto.isNotEmpty) {
+              precacheImage(NetworkImage(item.restaurantPhoto), context).catchError((_) {});
+            }
+            if (item.hostPhoto.isNotEmpty) {
+              precacheImage(NetworkImage(item.hostPhoto), context).catchError((_) {});
+            }
           }
         });
       }
@@ -1537,14 +1595,37 @@ class DiscoverPageState extends State<DiscoverPage> {
                     style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Mensaje para romper el hielo (opcional)',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Mensaje para romper el hielo (opcional)',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        ),
+                      ),
+                      if (!_isCurrentUserPro)
+                        GestureDetector(
+                          onTap: () => SubscriptionPlansPage.show(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text(
+                              'Ampliar con Pro ✨',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   TextField(
                     controller: messageController,
-                    maxLines: 2,
+                    maxLines: 3,
+                    maxLength: _isCurrentUserPro ? 300 : 100,
                     decoration: InputDecoration(
                       hintText: 'Ej. ¡Me encantaría ir! Conozco ese sitio y es genial...',
                       filled: true,
@@ -1554,7 +1635,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 14),
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -1569,14 +1650,23 @@ class DiscoverPageState extends State<DiscoverPage> {
 
                                 String requesterName = user.displayName ?? 'Usuario';
                                 String requesterPhoto = user.photoURL ?? '';
+                                String requesterPlan = (_currentUserData?['plan'] ??
+                                        _currentUserData?['subscription']?['tier'] ??
+                                        'free')
+                                    .toString()
+                                    .toLowerCase();
 
                                 try {
                                   final uDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
                                   if (uDoc.exists) {
                                     final uData = uDoc.data();
                                     if (uData != null) {
+                                      UserCacheService.put(user.uid, uData);
                                       if (uData['name'] != null && (uData['name'] as String).isNotEmpty) {
                                         requesterName = uData['name'];
+                                      }
+                                      if (uData['plan'] != null && uData['plan'].toString().isNotEmpty) {
+                                        requesterPlan = uData['plan'].toString().toLowerCase();
                                       }
                                       final pList = (uData['photoUrls'] as List?) ?? (uData['photos'] as List?);
                                       if (pList != null && pList.isNotEmpty) {
@@ -1587,6 +1677,39 @@ class DiscoverPageState extends State<DiscoverPage> {
                                   }
                                 } catch (_) {}
 
+                                final isProPlan = requesterPlan == 'pro' || requesterPlan == 'pro_plus';
+                                if (!isProPlan) {
+                                  // Verificar límite diario de 5 solicitudes para cuentas gratuitas
+                                  final myReqsSnap = await FirebaseFirestore.instance
+                                      .collection('reservation_requests')
+                                      .where('requesterUserId', isEqualTo: user.uid)
+                                      .get();
+                                  final nowDt = DateTime.now();
+                                  final startOfDay = DateTime(nowDt.year, nowDt.month, nowDt.day);
+                                  int todayCount = 0;
+                                  for (final rDoc in myReqsSnap.docs) {
+                                    final cAt = rDoc.data()['createdAt'];
+                                    if (cAt is Timestamp && cAt.toDate().isAfter(startOfDay)) {
+                                      todayCount++;
+                                    }
+                                  }
+                                  if (todayCount >= 5) {
+                                    setModalState(() => isSending = false);
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(this.context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Alcanzaste el límite de 5 solicitudes diarias del plan Gratis. ¡Pásate a Pro para solicitudes ilimitadas! ✨'),
+                                          backgroundColor: Color(0xFFFF5E3A),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                      SubscriptionPlansPage.show(this.context);
+                                    }
+                                    return;
+                                  }
+                                }
+
                                 final msg = messageController.text.trim();
                                 final now = Timestamp.now();
 
@@ -1596,6 +1719,7 @@ class DiscoverPageState extends State<DiscoverPage> {
                                   'requesterUserId': user.uid,
                                   'requesterName': requesterName,
                                   'requesterPhoto': requesterPhoto,
+                                  'requesterPlan': requesterPlan,
                                   'placeName': placeName,
                                   'dateTime': reservationData['dateTime'],
                                   'planType': reservationData['planType'] ?? 'Comida',
@@ -2176,7 +2300,7 @@ class DiscoverPageState extends State<DiscoverPage> {
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
-    final topOffset = topPadding > 0 ? topPadding : 16.0;
+    const double headerHeight = kToolbarHeight; // 56.0, idéntico al AppBar de las demás secciones
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
@@ -2225,7 +2349,7 @@ class DiscoverPageState extends State<DiscoverPage> {
           // Vista 2: Descubrir Personas Estilo Tinder
           if (_showPeopleDiscovery)
             Positioned.fill(
-              top: topOffset + 104,
+              top: topPadding + headerHeight + 60,
               bottom: bottomPadding + 10,
               child: TinderSwipeView(
                 onSwitchToMap: () => setState(() => _showPeopleDiscovery = false),
@@ -2235,34 +2359,24 @@ class DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
 
-          // Franja blanca superior con el logo Almona y el botón de filtros en la esquina superior derecha
+          // Franja blanca superior con el mismo alto y márgenes exactos del AppBar de las otras secciones
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            height: topOffset + 44,
+            height: topPadding + headerHeight,
             child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
+              color: Colors.white,
               padding: EdgeInsets.only(
-                top: topPadding > 0 ? topPadding : 6,
-                bottom: 4,
-                left: 20,
+                top: topPadding,
+                left: 16,
                 right: 16,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const AlmonaTitle(height: 32),
+                  const AlmonaTitle(),
                   _buildTopFilterButton(),
                 ],
               ),
@@ -2271,7 +2385,7 @@ class DiscoverPageState extends State<DiscoverPage> {
 
           // Selector superior flotante ("Reservas en Mapa" / "Descubrir Personas")
           Positioned(
-            top: topOffset + 50,
+            top: topPadding + headerHeight + 8,
             left: 16,
             right: 16,
             child: GestureDetector(

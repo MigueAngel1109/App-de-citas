@@ -40,7 +40,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     _activeMatchId = widget.matchId;
     if (_activeMatchId == null || _activeMatchId!.isEmpty) {
       _resolveOrCreateMatch();
+    } else {
+      _markMatchAsRead(_activeMatchId);
     }
+  }
+
+  void _markMatchAsRead(String? mId) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || mId == null || mId.isEmpty) return;
+    FirebaseFirestore.instance.collection('matches').doc(mId).update({
+      'readBy': FieldValue.arrayUnion([uid]),
+    }).catchError((_) {});
   }
 
   @override
@@ -72,6 +82,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               _activeMatchId = doc.id;
             });
           }
+          _markMatchAsRead(doc.id);
           return;
         }
       }
@@ -156,6 +167,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         'lastMessage': texto,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'lastSenderId': user.uid,
+        'readBy': [user.uid],
       });
     } catch (e) {
       debugPrint('Error enviando mensaje: $e');
@@ -378,6 +390,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       }
 
                       final docs = snapshot.data?.docs ?? [];
+                      if (docs.isNotEmpty) {
+                        final latestData = docs.first.data() as Map<String, dynamic>;
+                        final latestSender = latestData['senderId']?.toString() ?? '';
+                        if (latestSender.isNotEmpty && latestSender != currentUserId) {
+                          _markMatchAsRead(matchId);
+                        }
+                      }
                       if (docs.isEmpty) {
                         return Center(
                           child: SingleChildScrollView(

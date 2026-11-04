@@ -693,10 +693,19 @@ class _ReservasPageState extends State<ReservasPage> {
           );
         }
 
+        int planPriority(Map<String, dynamic> d) {
+          final p = (d['requesterPlan'] ?? 'free').toString().toLowerCase();
+          if (p == 'pro_plus') return 2;
+          if (p == 'pro') return 1;
+          return 0;
+        }
+
         final sortedReqs = List<QueryDocumentSnapshot>.from(reqDocs);
         sortedReqs.sort((a, b) {
           final aData = a.data() as Map<String, dynamic>;
           final bData = b.data() as Map<String, dynamic>;
+          final pComp = planPriority(bData).compareTo(planPriority(aData));
+          if (pComp != 0) return pComp;
           final aTs = aData['createdAt'] as Timestamp?;
           final bTs = bData['createdAt'] as Timestamp?;
           if (aTs == null && bTs == null) return 0;
@@ -770,6 +779,9 @@ class _ReservasPageState extends State<ReservasPage> {
     final requesterId = requestData['requesterUserId']?.toString() ?? requestData['requesterId']?.toString() ?? '';
     final requesterName = requestData['requesterName'] ?? 'Usuario';
     final requesterPhoto = (requestData['requesterPhoto'] ?? '').toString();
+    final requesterPlan = (requestData['requesterPlan'] ?? 'free').toString().toLowerCase();
+    final isVipProPlus = requesterPlan == 'pro_plus';
+    final isProRequester = requesterPlan == 'pro' || isVipProPlus;
     final message = (requestData['message'] ?? '').toString();
     final status = requestData['status'] ?? 'pending';
     final placeName = reservationData['placeName'] ?? requestData['placeName'] ?? 'la cita';
@@ -803,8 +815,12 @@ class _ReservasPageState extends State<ReservasPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.divider,
-          width: 1.0,
+          color: isVipProPlus
+              ? const Color(0xFF9D4EDD).withOpacity(0.55)
+              : isProRequester
+                  ? const Color(0xFFFF7A00).withOpacity(0.45)
+                  : AppColors.divider,
+          width: isProRequester ? 1.4 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
@@ -861,14 +877,54 @@ class _ReservasPageState extends State<ReservasPage> {
               ),
               const SizedBox(width: 12),
 
-              // NOMBRE Y TEXTO "Ver perfil"
+              // NOMBRE, INSIGNIA VIP/PRO Y TEXTO "Ver perfil"
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      requesterName,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            requesterName,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isProRequester) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: isVipProPlus
+                                    ? const [Color(0xFF9D4EDD), Color(0xFFFF007A)]
+                                    : const [Color(0xFFFF7A00), Color(0xFFFF007A)],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isVipProPlus ? Icons.diamond_rounded : Icons.workspace_premium_rounded,
+                                  size: 10,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  isVipProPlus ? 'VIP PRO+' : 'PRO',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     GestureDetector(

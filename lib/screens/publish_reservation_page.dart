@@ -1482,14 +1482,24 @@ class _PublishReservationPageState extends State<PublishReservationPage> {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? {};
 
-      // Verificar límite de reservas simultáneas según el plan de suscripción
+      // Verificar límite de reservas simultáneas activas (no vencidas) según el plan de suscripción
       final plan = userData['plan']?.toString() ?? 'free';
       if (plan != 'pro_plus') {
         final existingQuery = await FirebaseFirestore.instance
             .collection('reservations')
             .where('userId', isEqualTo: user.uid)
             .get();
-        final currentCount = existingQuery.docs.length;
+        final activeThreshold = DateTime.now().subtract(const Duration(hours: 2));
+        final currentCount = existingQuery.docs.where((d) {
+          final data = d.data();
+          final status = data['status']?.toString().toLowerCase() ?? 'active';
+          if (status != 'active' && status != 'published') return false;
+          final rawDt = data['dateTime'];
+          if (rawDt is Timestamp) {
+            return rawDt.toDate().isAfter(activeThreshold);
+          }
+          return true;
+        }).length;
         final maxAllowed = plan == 'pro' ? 3 : 1;
         if (currentCount >= maxAllowed) {
           setState(() => _isPublishing = false);
