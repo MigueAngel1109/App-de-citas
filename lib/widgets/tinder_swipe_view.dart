@@ -260,15 +260,20 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   }
 
   Future<void> _persistSeenId(String candidateId, {required bool isLiked}) async {
+    if (candidateId.isEmpty) return;
+    if (isLiked) {
+      _likedIds.add(candidateId);
+    } else {
+      _passedIds.add(candidateId);
+    }
+
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null || candidateId.isEmpty) return;
+    if (user == null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       if (isLiked) {
-        _likedIds.add(candidateId);
         await prefs.setStringList('liked_${user.uid}', _likedIds.toList());
       } else {
-        _passedIds.add(candidateId);
         await prefs.setStringList('passed_${user.uid}', _passedIds.toList());
       }
     } catch (_) {}
@@ -290,12 +295,23 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
   }
 
   void _onPass() {
-    if (_currentIndex >= _candidates.length) return;
-    final currentCandidateId = _candidates[_currentIndex]['id']?.toString() ?? '';
+    if (_candidates.isEmpty) return;
+    final safeIndex = _currentIndex.clamp(0, _candidates.length - 1);
+    final currentCandidateId = _candidates[safeIndex]['id']?.toString() ?? '';
     if (currentCandidateId.isNotEmpty) {
+      _passedIds.add(currentCandidateId);
       _persistSeenId(currentCandidateId, isLiked: false);
     }
-    _applyFilters();
+
+    setState(() {
+      _candidates.removeWhere((c) => c['id'] == currentCandidateId);
+      if (_currentIndex >= _candidates.length) {
+        _currentIndex = 0;
+      }
+    });
+
+    _precacheUpcomingCandidates();
+
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
@@ -1690,7 +1706,6 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: backgroundColor,
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
@@ -1706,8 +1721,9 @@ class _TinderSwipeViewState extends State<TinderSwipeView> {
         ],
       ),
       child: Material(
-        color: Colors.transparent,
+        color: backgroundColor,
         shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
